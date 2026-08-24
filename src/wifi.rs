@@ -8,6 +8,7 @@ use esp_idf_svc::{
     nvs::EspDefaultNvsPartition,
     wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi},
 };
+// NVS is at esp_idf_svc::nvs, not esp_idf_svc::hal::nvs
 use log::info;
 
 /// WiFi SSID — 修改为你的路由器名称。

@@ -5,11 +5,10 @@
 
 use crate::abp_package::{AbpPackage, PackageType};
 use crate::package_manager::{InstalledPackage, PackageManager};
-use embedded_svc::http::Method;
-use esp_idf_svc::http::server::{Configuration, EspHttpServer, Request, Response};
+use esp_idf_svc::http::Method;
+use esp_idf_svc::http::server::{Configuration, EspHttpServer};
 use serde::Serialize;
-use std::io::Read;
-use std::sync::Arc;
+use std::io::{Read, Write};
 
 /// 管理页面 HTML。
 const ADMIN_HTML: &str = r#"<!DOCTYPE html>
@@ -208,7 +207,7 @@ struct ErrorResponse {
 }
 
 /// 启动 Web 服务器。
-pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer, Box<dyn std::error::Error>> {
+pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static>, Box<dyn std::error::Error>> {
     let config = Configuration {
         http_port: 80,
         ..Default::default()
@@ -337,19 +336,21 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer, Box<dy
 
 /// 发送 JSON 响应的辅助函数。
 fn send_json<T: Serialize>(
-    req: Request<&mut esp_idf_svc::http::server::EspHttpConnection>,
+    req: esp_idf_svc::http::server::Request<&mut esp_idf_svc::http::server::EspHttpConnection>,
     status: u16,
     data: &T,
 ) -> Result<(), std::io::Error> {
     let json = serde_json::to_vec(data).unwrap_or_else(|_| b"{}".to_vec());
-    let mut resp = req.into_response(
-        status,
-        None,
-        &[
-            ("Content-Type", "application/json"),
-            ("Content-Length", &json.len().to_string()),
-        ],
-    )?;
+    let mut resp = req
+        .into_response(
+            status,
+            None,
+            &[
+                ("Content-Type", "application/json"),
+                ("Content-Length", &json.len().to_string()),
+            ],
+        )
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     resp.write_all(&json)?;
     Ok(())
 }

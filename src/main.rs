@@ -22,11 +22,11 @@ use esp_idf_svc::{
         gpio::PinDriver,
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, LEDC},
         modem::Modem,
-        nvs::EspDefaultNvsPartition,
         prelude::Peripherals,
         spi::{SpiConfig, SpiDeviceDriver, SpiDriver},
     },
     log::EspLogger,
+    nvs::EspDefaultNvsPartition,
     sys::link_patches,
 };
 use mipidsi::{
