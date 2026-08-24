@@ -216,7 +216,9 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
     let pm = pkg_manager.clone();
     // GET / — 管理页面
     server.fn_handler("/", Method::Get, move |req| -> Result<(), std::io::Error> {
-        let mut resp = req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?;
+        let mut resp = req
+            .into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))?;
         embedded_svc::io::Write::write_all(&mut resp, ADMIN_HTML.as_bytes())
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))?;
         Ok(())
