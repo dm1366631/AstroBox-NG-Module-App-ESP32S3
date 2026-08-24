@@ -5,10 +5,10 @@
 
 use crate::abp_package::{AbpPackage, PackageType};
 use crate::package_manager::{InstalledPackage, PackageManager};
-use esp_idf_svc::http::Method;
-use esp_idf_svc::http::server::{Configuration, EspHttpServer};
+use embedded_svc::http::server::ResponseWrite;
+use embedded_svc::io::Read as _;
+use esp_idf_svc::http::server::{Configuration, EspHttpServer, Method};
 use serde::Serialize;
-use std::io::{Read, Write};
 
 /// 管理页面 HTML。
 const ADMIN_HTML: &str = r#"<!DOCTYPE html>
@@ -218,7 +218,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
     // GET / — 管理页面
     server.fn_handler("/", Method::Get, move |req| {
         let mut resp = req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?;
-        resp.writer().write_all(ADMIN_HTML.as_bytes())?;
+        resp.write_all(ADMIN_HTML.as_bytes())?;
         Ok(())
     })?;
 
@@ -262,12 +262,28 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
         }
 
         let mut buf = vec![0u8; content_len];
-        if let Err(e) = req.reader().read_exact(&mut buf) {
+        let mut total_read = 0usize;
+        while total_read < content_len {
+            match req.read(&mut buf[total_read..]) {
+                Ok(0) => break,
+                Ok(n) => total_read += n,
+                Err(e) => {
+                    return send_json(
+                        req,
+                        400,
+                        &ErrorResponse {
+                            error: format!("read body: {e}"),
+                        },
+                    );
+                }
+            }
+        }
+        if total_read < content_len {
             return send_json(
                 req,
                 400,
                 &ErrorResponse {
-                    error: format!("read body: {e}"),
+                    error: format!("incomplete body: {total_read}/{content_len}"),
                 },
             );
         }
@@ -300,12 +316,28 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
         }
 
         let mut buf = vec![0u8; content_len];
-        if req.reader().read_exact(&mut buf).is_err() {
+        let mut total_read = 0usize;
+        while total_read < content_len {
+            match req.read(&mut buf[total_read..]) {
+                Ok(0) => break,
+                Ok(n) => total_read += n,
+                Err(_) => {
+                    return send_json(
+                        req,
+                        400,
+                        &ErrorResponse {
+                            error: "read body failed".to_string(),
+                        },
+                    );
+                }
+            }
+        }
+        if total_read < content_len {
             return send_json(
                 req,
                 400,
                 &ErrorResponse {
-                    error: "read body failed".to_string(),
+                    error: "incomplete body".to_string(),
                 },
             );
         }
@@ -351,6 +383,6 @@ fn send_json<T: Serialize>(
             ],
         )
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    resp.writer().write_all(&json)?;
+    resp.write_all(&json)?;
     Ok(())
 }
