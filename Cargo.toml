@@ -39,8 +39,8 @@ codegen-units = 1
 [features]
 default = ["sdcard", "repo_net", "mi_account"]
 sdcard = ["embedded-svc"]
-repo_net = ["embedded-svc/http", "embedded-svc/utils", "csv", "serde", "serde_json", "url"]
-mi_account = ["embedded-svc/http", "embedded-svc/utils", "serde", "serde_json", "md-5", "hmac", "sha1", "sha2", "base64"]
+repo_net = ["csv", "serde", "serde_json", "url"]
+mi_account = ["serde", "serde_json", "md-5", "hmac", "sha1", "sha2", "base64"]
 # 步骤 6：AstroBox 插件运行时。默认关闭，避免影响出货固件编译尺寸/稳定性。
 # 开启后：SD 卡 `.abp` 可被列出并加载（Phase 1 为 stub runtime，不真正执行 wasm）。
 plugin_runtime = ["zip", "serde", "serde_json"]
