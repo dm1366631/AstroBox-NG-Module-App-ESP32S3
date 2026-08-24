@@ -48,3 +48,8 @@ pub fn file_len(file: RawFd) -> io::Result<u64> {
         Ok(f.metadata()?.len())
     }
 }
+
+// Raw pointers are not Send/Sync by default, but the real memmap2
+// implements them manually because the mapped memory is safe to share.
+unsafe impl Send for MmapInner {}
+unsafe impl Sync for MmapInner {}
