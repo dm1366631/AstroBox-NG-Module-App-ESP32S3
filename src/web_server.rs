@@ -215,7 +215,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
 
     let pm = pkg_manager.clone();
     // GET / — 管理页面
-    server.fn_handler("/", Method::Get, move |req| {
+    server.fn_handler("/", Method::Get, move |req| -> Result<(), std::io::Error> {
         let mut resp = req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?;
         embedded_svc::io::Write::write_all(&mut resp, ADMIN_HTML.as_bytes())
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))?;
@@ -224,7 +224,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
 
     let pm_status = pkg_manager.clone();
     // GET /api/status
-    server.fn_handler("/api/status", Method::Get, move |req| {
+    server.fn_handler("/api/status", Method::Get, move |req| -> Result<(), std::io::Error> {
         let status = StatusResponse {
             total: pm_status.count(),
             quick_apps: pm_status.count_by_type(PackageType::QuickApp),
@@ -236,7 +236,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
 
     let pm_list = pkg_manager.clone();
     // GET /api/packages
-    server.fn_handler("/api/packages", Method::Get, move |req| {
+    server.fn_handler("/api/packages", Method::Get, move |req| -> Result<(), std::io::Error> {
         let items = pm_list.list();
         let resp = PackageListResponse { items };
         send_json(req, 200, &resp)
@@ -244,7 +244,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
 
     let pm_install = pkg_manager.clone();
     // POST /api/install — body 是 .abp 原始字节
-    server.fn_handler("/api/install", Method::Post, move |mut req| {
+    server.fn_handler("/api/install", Method::Post, move |mut req| -> Result<(), std::io::Error> {
         // 读取请求体
         let content_len = req
             .header("Content-Length")
@@ -299,7 +299,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
 
     let pm_uninstall = pkg_manager.clone();
     // POST /api/uninstall — JSON body: {id}
-    server.fn_handler("/api/uninstall", Method::Post, move |mut req| {
+    server.fn_handler("/api/uninstall", Method::Post, move |mut req| -> Result<(), std::io::Error> {
         let content_len = req
             .header("Content-Length")
             .and_then(|v| v.parse::<usize>().ok())
