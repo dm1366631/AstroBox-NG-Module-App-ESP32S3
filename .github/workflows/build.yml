@@ -50,27 +50,8 @@ jobs:
           cargo fetch
           MEMMAP2_DIR=$(find ~/.cargo/registry/src -type d -name "memmap2-0.9*" | head -1)
           echo "Patching memmap2 at: $MEMMAP2_DIR"
-          # Use stub.rs for unix.rs (ESP-IDF is unix but lacks mmap libc constants)
-          cp "$MEMMAP2_DIR/src/stub.rs" "$MEMMAP2_DIR/src/unix.rs"
-          # Replace advice.rs with a stub that uses hardcoded values
-          cat > "$MEMMAP2_DIR/src/advice.rs" << 'ADVICE_EOF'
-          #[repr(i32)]
-          #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-          pub enum Advice {
-              Normal = 0,
-              Random = 1,
-              Sequential = 2,
-              WillNeed = 3,
-              DontNeed = 4,
-          }
-          #[repr(transparent)]
-          #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-          pub struct UncheckedAdvice(i32);
-          impl UncheckedAdvice {
-              pub const fn new(val: i32) -> Self { Self(val) }
-              pub const fn from_advice(advice: Advice) -> Self { Self(advice as i32) }
-          }
-          ADVICE_EOF
+          cp "$GITHUB_WORKSPACE/.github/stubs/unix.rs" "$MEMMAP2_DIR/src/unix.rs"
+          cp "$GITHUB_WORKSPACE/.github/stubs/advice.rs" "$MEMMAP2_DIR/src/advice.rs"
           echo "memmap2 patched successfully"
       - name: Build release firmware
         run: |
