@@ -24,7 +24,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install espup and ldproxy
-        run: cargo install espup ldproxy --locked
+        run: cargo +stable install espup ldproxy --locked
 
       - name: Install ESP32-S3 toolchain
         run: espup install --targets esp32s3
