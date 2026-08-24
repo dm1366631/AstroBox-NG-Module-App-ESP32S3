@@ -38,7 +38,7 @@ codegen-units = 1
 
 [features]
 default = ["sdcard", "repo_net", "mi_account"]
-sdcard = ["esp-idf-svc/fatfs", "esp-idf-svc/sdmmc", "embedded-svc"]
+sdcard = ["embedded-svc"]
 repo_net = ["embedded-svc/http", "embedded-svc/utils", "csv", "serde", "serde_json", "url"]
 mi_account = ["embedded-svc/http", "embedded-svc/utils", "serde", "serde_json", "md-5", "hmac", "sha1", "sha2", "base64"]
 # 步骤 6：AstroBox 插件运行时。默认关闭，避免影响出货固件编译尺寸/稳定性。
