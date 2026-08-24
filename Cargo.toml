@@ -78,6 +78,9 @@ slint = { version = "1.17.1", default-features = false, features = [
     "compat-1-2"
 ] }
 libc = "0.2"
+# Disable simd feature on tiny-skia to avoid Xtensa LLVM backend crash
+# (PCREL_WRAPPER TargetConstantPool cannot be selected)
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "png-format"] }
 
 # ============ 新增：SD 卡 / HTTP / 仓库索引 / 日志 依赖 ============
 embedded-svc = { version = "0.27", default-features = false, optional = true }
