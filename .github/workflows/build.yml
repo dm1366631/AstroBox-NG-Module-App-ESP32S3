@@ -1,13 +1,10 @@
-name: Build ESP32-S3 Firmware
-
+name: Build ESP32-S3 Firmware (MINIMAL)
 on:
   push:
-    branches: [main]
+    branches: [minimal]
   workflow_dispatch:
-
 env:
   CARGO_TERM_COLOR: always
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,41 +28,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Clone dependency modules
-        run: |
-          cd $GITHUB_WORKSPACE/..
-          git clone https://github.com/AstralSightStudios/AstroBox-NG-Module-Core.git core
-          git clone https://github.com/AstralSightStudios/AstroBox-NG-Module-Pb.git pb
-          git clone https://github.com/AstralSightStudios/AstroBox-NG-Module-Vivo-MsgPack.git vivo_msgpack
-
-      - name: Fix Cargo.toml (remove non-existent features)
-        run: |
-          cd $GITHUB_WORKSPACE
-          sed -i 's/sdcard = \["esp-idf-svc\/fatfs", "esp-idf-svc\/sdmmc", "embedded-svc"\]/sdcard = ["embedded-svc"]/' Cargo.toml
-
-      - name: Patch memmap2 and fontique for ESP-IDF
-        run: |
-          . $HOME/export-esp.sh
-          cd $GITHUB_WORKSPACE
-          cargo fetch
-          # Patch memmap2
-          MEMMAP2_DIR=$(find ~/.cargo/registry/src -type d -name "memmap2-0.9*" | head -1)
-          echo "Patching memmap2 at: $MEMMAP2_DIR"
-          cp "$GITHUB_WORKSPACE/.github/stubs/unix.rs" "$MEMMAP2_DIR/src/unix.rs"
-          cp "$GITHUB_WORKSPACE/.github/stubs/advice.rs" "$MEMMAP2_DIR/src/advice.rs"
-          echo "memmap2 patched successfully"
-          # Patch fontique 0.10.0 type mismatch (u32 vs u64 on ESP32-S3)
-          FONTIQUE_DIR=$(find ~/.cargo/registry/src -type d -name "fontique-0.10*" | head -1)
-          echo "Patching fontique at: $FONTIQUE_DIR"
-          # AtomicCounter is conditionally AtomicU32 or AtomicU64 depending on
-          # target_has_atomic="64", but shared_version is always u64. Use `as _`
-          # for the constructor so the compiler infers the right integer width,
-          # and cast version to u64 for the compare/assign.
-          sed -i 's/AtomicCounter::new(self.shared_version)/AtomicCounter::new(self.shared_version as _)/' "$FONTIQUE_DIR/src/collection/mod.rs"
-          sed -i 's/if self.shared_version != version {/if self.shared_version != version as u64 {/' "$FONTIQUE_DIR/src/collection/mod.rs"
-          sed -i 's/self.shared_version = version;/self.shared_version = version as u64;/' "$FONTIQUE_DIR/src/collection/mod.rs"
-          echo "fontique patched successfully"
-          echo "fontique patched successfully"
       - name: Build release firmware
         run: |
           . $HOME/export-esp.sh
@@ -75,6 +37,6 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: esp32s3-firmware
+          name: esp32s3-firmware-minimal
           path: target/xtensa-esp32s3-espidf/release/app_esp32s3
           retention-days: 30

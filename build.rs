@@ -5,14 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn main() {
     emit_priv_cfg_flag();
     emit_build_time_env();
-
     embuild::espidf::sysenv::output();
-
-    let config = slint_build::CompilerConfiguration::new()
-        .embed_resources(slint_build::EmbedResourcesKind::EmbedForSoftwareRenderer);
-
-    slint_build::compile_with_config("src/gui/app.slint", config)
-        .expect("slint UI compilation failed");
 }
 
 fn emit_priv_cfg_flag() {
@@ -51,17 +44,11 @@ fn workspace_dir() -> Option<PathBuf> {
     manifest_dir.ancestors().nth(2).map(|p| p.to_path_buf())
 }
 
-/// Emit `cargo:rustc-env=BUILD_TIME=2026-08-24T10:00:00Z` so
-/// `env!("BUILD_TIME")` in the firmware / web UI returns the build stamp.
-/// Re-runs whenever build.rs itself changes (cargo handles rerun automatically
-/// for build.rs edits; build-time stamp naturally depends on build instant).
 fn emit_build_time_env() {
-    // Prefer RFC3339-formatted UTC time (chrono free; std only)
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let secs = dur.as_secs() as i64;
-    // Convert unix timestamp to Y-M-D H:M:S UTC using known formula
     let (y, mo, d, h, mi, s) = secs_to_ymdhms(secs);
     let stamp = format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z");
     println!("cargo:rustc-env=BUILD_TIME={stamp}");
@@ -74,7 +61,6 @@ fn secs_to_ymdhms(mut secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     secs = secs.div_euclid(60);
     let h = secs.rem_euclid(24) as u32;
     let mut days: i64 = secs.div_euclid(24);
-    // 1970-01-01 is epoch. Iterate years/months.
     let mut year: i32 = 1970;
     loop {
         let leap = is_leap(year);
@@ -103,6 +89,7 @@ fn secs_to_ymdhms(mut secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     }
     (year, month, days as u32 + 1, h, mi, s)
 }
+
 const fn is_leap(y: i32) -> bool {
     if y % 4 != 0 {
         return false;
