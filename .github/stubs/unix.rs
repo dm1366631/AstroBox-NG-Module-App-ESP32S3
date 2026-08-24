@@ -37,6 +37,7 @@ impl MmapInner {
     pub fn mut_ptr(&mut self) -> *mut u8 { self.ptr }
     pub fn len(&self) -> usize { self.len }
     pub unsafe fn advise(&self, _advice: i32, _offset: usize, _len: usize) -> io::Result<()> { Ok(()) }
+    #[cfg(target_os = "linux")]
     pub fn remap(&mut self, _new_len: usize, _options: crate::RemapOptions) -> io::Result<()> { Err(io::ErrorKind::Unsupported.into()) }
     pub fn lock(&self) -> io::Result<()> { Ok(()) }
     pub fn unlock(&self) -> io::Result<()> { Ok(()) }
