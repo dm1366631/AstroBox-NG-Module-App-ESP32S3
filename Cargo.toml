@@ -15,13 +15,8 @@ opt-level = "s"
 codegen-units = 1
 panic = "abort"
 
-# Xtensa LLVM backend crashes on several crates with size optimization due to
-# constant selection failures. Lower opt level for them.
+# Xtensa LLVM backend crashes on tiny-skia with size optimization.
 [profile.release.package.tiny-skia]
-opt-level = 0
-[profile.release.package.image]
-opt-level = 0
-[profile.release.package.resvg]
 opt-level = 0
 
 [profile.dev]
@@ -38,11 +33,11 @@ opt-level = 0
 codegen-units = 1
 
 [profile.release.package.image]
-opt-level = 2
+opt-level = 0
 codegen-units = 1
 
 [profile.release.package.resvg]
-opt-level = 2
+opt-level = 0
 codegen-units = 1
 
 [features]
