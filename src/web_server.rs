@@ -217,7 +217,8 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
     // GET / — 管理页面
     server.fn_handler("/", Method::Get, move |req| {
         let mut resp = req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?;
-        resp.write_all(ADMIN_HTML.as_bytes())?;
+        embedded_svc::io::Write::write_all(&mut resp, ADMIN_HTML.as_bytes())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))?;
         Ok(())
     })?;
 
@@ -382,6 +383,7 @@ fn send_json<T: Serialize>(
             ],
         )
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    resp.write_all(&json)?;
+    embedded_svc::io::Write::write_all(&mut resp, &json)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))?;
     Ok(())
 }
