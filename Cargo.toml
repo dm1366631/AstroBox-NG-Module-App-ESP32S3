@@ -15,9 +15,13 @@ opt-level = "s"
 codegen-units = 1
 panic = "abort"
 
-# Xtensa LLVM backend crashes on tiny-skia with size optimization due to
-# PCREL_WRAPPER TargetConstantPool float constants. Lower opt level for it.
+# Xtensa LLVM backend crashes on several crates with size optimization due to
+# constant selection failures. Lower opt level for them.
 [profile.release.package.tiny-skia]
+opt-level = 0
+[profile.release.package.image]
+opt-level = 0
+[profile.release.package.resvg]
 opt-level = 0
 
 [profile.dev]
