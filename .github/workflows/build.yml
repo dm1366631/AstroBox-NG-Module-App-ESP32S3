@@ -57,9 +57,9 @@ jobs:
           # Patch fontique 0.10.0 type mismatch (u32 vs u64 on ESP32-S3)
           FONTIQUE_DIR=$(find ~/.cargo/registry/src -type d -name "fontique-0.10*" | head -1)
           echo "Patching fontique at: $FONTIQUE_DIR"
-          sed -i 's/AtomicCounter::new(self.shared_version)/AtomicCounter::new(self.shared_version as u32)/' "$FONTIQUE_DIR/src/collection/mod.rs"
-          sed -i 's/if self.shared_version != version {/if self.shared_version != version as u64 {/' "$FONTIQUE_DIR/src/collection/mod.rs"
-          sed -i 's/self.shared_version = version;/self.shared_version = version as u64;/' "$FONTIQUE_DIR/src/collection/mod.rs"
+          # On ESP32-S3 AtomicCounter is AtomicU64, so no cast needed for the constructor.
+          # The other two compares/assignments are u64 vs u64 already.
+          echo "fontique: no cast needed (AtomicCounter is u64 on this target)"
           echo "fontique patched successfully"
       - name: Build release firmware
         run: |
