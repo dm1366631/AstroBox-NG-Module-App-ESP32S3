@@ -5,8 +5,7 @@
 
 use crate::abp_package::{AbpPackage, PackageType};
 use crate::package_manager::{InstalledPackage, PackageManager};
-use embedded_svc::http::server::ResponseWrite;
-use embedded_svc::io::Read as _;
+use embedded_svc::io::{Read as _, Write as _};
 use esp_idf_svc::http::server::{Configuration, EspHttpServer, Method};
 use serde::Serialize;
 
