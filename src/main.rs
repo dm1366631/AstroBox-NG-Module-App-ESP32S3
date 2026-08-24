@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
     let pins = peripherals.pins;
     let spi2 = peripherals.spi2;
     let ledc = peripherals.ledc;
-    let _modem = Modem::new(peripherals.modem);
+    let _modem = unsafe { Modem::new() };
 
     // ===== SPI2 bus: SCLK=GPIO7, MOSI=GPIO6, MISO=GPIO8 =====
     let spi_driver = SpiDriver::new(
