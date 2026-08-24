@@ -218,7 +218,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
     // GET / — 管理页面
     server.fn_handler("/", Method::Get, move |req| {
         let mut resp = req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?;
-        resp.write_all(ADMIN_HTML.as_bytes())?;
+        resp.writer().write_all(ADMIN_HTML.as_bytes())?;
         Ok(())
     })?;
 
@@ -262,7 +262,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
         }
 
         let mut buf = vec![0u8; content_len];
-        if let Err(e) = req.read_exact(&mut buf) {
+        if let Err(e) = req.reader().read_exact(&mut buf) {
             return send_json(
                 req,
                 400,
@@ -300,7 +300,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
         }
 
         let mut buf = vec![0u8; content_len];
-        if req.read_exact(&mut buf).is_err() {
+        if req.reader().read_exact(&mut buf).is_err() {
             return send_json(
                 req,
                 400,
@@ -351,6 +351,6 @@ fn send_json<T: Serialize>(
             ],
         )
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    resp.write_all(&json)?;
+    resp.writer().write_all(&json)?;
     Ok(())
 }
