@@ -11,7 +11,9 @@ name = "app_esp32s3"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
 [profile.release]
-opt-level = "s"
+# Use opt-level=1 instead of "s" to avoid Xtensa LLVM backend crash
+# (PCREL_WRAPPER TargetConstantPool float constants cannot be selected).
+opt-level = 1
 codegen-units = 1
 panic = "abort"
 
