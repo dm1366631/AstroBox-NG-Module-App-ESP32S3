@@ -22,11 +22,15 @@ debug = true
 
 [dependencies]
 log = "0.4"
-esp-idf-svc = { version = "0.51" }
+esp-idf-svc = { version = "0.51", features = ["http"] }
 mipidsi = "0.9.0"
 display-interface-spi = "0.5.0"
 cst816s = "1.0.1"
 embedded-graphics = "0.8"
+embedded-svc = { version = "0.27", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
 embuild = "0.33"
