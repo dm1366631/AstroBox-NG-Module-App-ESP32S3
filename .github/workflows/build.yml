@@ -43,11 +43,17 @@ jobs:
           cd $GITHUB_WORKSPACE
           sed -i 's/sdcard = \["esp-idf-svc\/fatfs", "esp-idf-svc\/sdmmc", "embedded-svc"\]/sdcard = ["embedded-svc"]/' Cargo.toml
 
+      - name: Diagnose dependencies
+        run: |
+          . $HOME/export-esp.sh
+          cd $GITHUB_WORKSPACE
+          cargo tree -i memmap2 2>&1 || true
+          cargo tree -i libc 2>&1 | head -20 || true
       - name: Build release firmware
         run: |
           . $HOME/export-esp.sh
           cd $GITHUB_WORKSPACE
-          cargo build --release
+          cargo build --release 2>&1 | tail -100
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
