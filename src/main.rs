@@ -432,7 +432,10 @@ async fn run_app() -> anyhow::Result<()> {
             while let Some(cmd) = mirx.recv().await {
                 let resp = match cmd {
                     web_ui::MiCmd::Status => {
-                        let (ok, user, uid) = mi_account::session_status().await;
+                        let (ok, user, uid) = match mi_account::load_session() {
+                            Some(s) => (true, Some(s.user_id.clone()), Some(s.user_id)),
+                            None => (false, None, None),
+                        };
                         web_ui::MiResp::Status(web_ui::MiAccountStatus {
                             logged_in: ok,
                             user: user.clone(),
@@ -440,23 +443,25 @@ async fn run_app() -> anyhow::Result<()> {
                         })
                     }
                     web_ui::MiCmd::Login { user, password } => web_ui::MiResp::Login(
-                        match mi_account::login_password(&user, &password).await {
-                            Ok(sess) => Ok(web_ui::MiAccountStatus {
+                        match mi_account::login_with_password(&user, &password).await {
+                            Ok(mi_account::LoginResult::Ok(sess)) => Ok(web_ui::MiAccountStatus {
                                 logged_in: true,
                                 user: Some(sess.user_id.clone()),
                                 user_id: Some(sess.user_id),
                             }),
+                            Ok(mi_account::LoginResult::NeedSms { desc, .. }) => Err(desc),
                             Err(e) => Err(format!("{e:#}")),
                         },
                     ),
                     web_ui::MiCmd::Logout => {
-                        web_ui::MiResp::Logout(match mi_account::logout().await {
-                            Ok(()) => Ok(()),
-                            Err(e) => Err(format!("{e:#}")),
-                        })
+                        web_ui::MiResp::Logout(mi_account::logout())
                     }
                     web_ui::MiCmd::ListDevices => {
-                        web_ui::MiResp::ListDevices(match mi_account::fetch_device_list().await {
+                        let result = match mi_account::load_session() {
+                            Some(sess) => mi_account::list_devices(&sess).await,
+                            None => Err(anyhow::anyhow!("未登录，请先登录小米账号")),
+                        };
+                        web_ui::MiResp::ListDevices(match result {
                             Ok(list) => Ok(list
                                 .into_iter()
                                 .map(|d| web_ui::MiDeviceView {
@@ -747,9 +752,9 @@ fn spawn_sntp_init_best_effort() {
                 // 仅在 SNTP 尚未启动时尝试启动（CONFIG_LWIP_SNTP_INITIALIZED_ON_STARTUP=n）
                 // 简化版：等待 50ms 给网络 up，然后 sntp_init()
                 std::thread::sleep(std::time::Duration::from_millis(200));
-                esp_idf_svc::sys::sntp_setoperatingmode(0); // SNTP_OPMODE_POLL
+                esp_idf_sys::sntp_setoperatingmode(0); // SNTP_OPMODE_POLL
                                                             // server 用默认 pool.ntp.org（sdkconfig.defaults 已设）
-                esp_idf_svc::sys::sntp_init();
+                esp_idf_sys::sntp_init();
             });
         })
         .ok();

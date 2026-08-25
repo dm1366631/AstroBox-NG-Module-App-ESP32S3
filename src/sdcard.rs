@@ -104,7 +104,7 @@ impl SdCard {
         if !self.mounted {
             return 0;
         }
-        let statvfs = esp_idf_svc::sys::statvfs {
+        let statvfs = esp_idf_sys::statvfs {
             f_bsize: 0,
             f_frsize: 0,
             f_blocks: 0,
@@ -122,7 +122,7 @@ impl SdCard {
         // SDCARD_ROOT 是常量 "/sdcard\0"（我们用 as_ptr 传）。
         let root_c = std::ffi::CString::new(SDCARD_ROOT)
             .expect("SDCARD_ROOT constant contains no NUL in middle");
-        let ret = unsafe { esp_idf_svc::sys::statvfs(root_c.as_ptr(), &mut stat as *mut _) };
+        let ret = unsafe { esp_idf_sys::statvfs(root_c.as_ptr(), &mut stat as *mut _) };
         if ret != 0 {
             log::warn!("statvfs({SDCARD_ROOT}) failed with errno={ret}; returning 0 free bytes");
             return 0;

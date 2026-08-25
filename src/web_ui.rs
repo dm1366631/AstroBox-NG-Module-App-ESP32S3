@@ -296,11 +296,11 @@ pub fn start(ctx: Context) -> Result<WebServer> {
         let (sd_mounted, total, free) = match &ctx.sd_root {
             Some(r) => {
                 // std::fs 下 esp-idf fatfs 的 statvfs 通过 sys::statvfs
-                use esp_idf_svc::sys::*;
+                use esp_idf_sys::*;
                 let path_str = r.to_string_lossy().to_string();
                 let cpath = std::ffi::CString::new(path_str).unwrap();
-                let mut st = std::mem::MaybeUninit::<statvfs>::zeroed();
-                let ok = unsafe { statvfs(cpath.as_ptr(), st.as_mut_ptr()) };
+                let mut st = std::mem::MaybeUninit::<esp_idf_sys::statvfs>::zeroed();
+                let ok = unsafe { esp_idf_sys::statvfs(cpath.as_ptr(), st.as_mut_ptr()) };
                 if ok == 0 {
                     let s = unsafe { st.assume_init() };
                     let blk = s.f_frsize as u64;
@@ -711,7 +711,7 @@ fn json_err(msg: &str) -> Vec<u8> {
     .unwrap_or_default()
 }
 
-fn header<R: embedded_svc::http::server::Request + ?Sized>(req: &R, key: &str) -> Option<String> {
+fn header<C: embedded_svc::http::server::Connection>(req: &embedded_svc::http::server::Request<C>, key: &str) -> Option<String> {
     // 遍历 headers 寻找忽略大小写匹配
     req.header(key).map(|s| s.to_string())
 }

@@ -52,6 +52,7 @@ log = "0.4"
 anyhow = "1.0.99"
 futures-lite = "2.6.1"
 esp-idf-svc = { version = "0.51" }
+esp-idf-sys = "0.34"
 esp32-nimble = "0.11.1"
 tokio = { version = "1", default-features = false, features = [
     "rt",

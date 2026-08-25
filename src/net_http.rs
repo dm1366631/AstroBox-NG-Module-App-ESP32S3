@@ -13,6 +13,8 @@
 //! 这和 `main.rs` 里 Wi-Fi watchdog 采用的模式一致。
 
 use anyhow::{anyhow, Context, Result};
+use embedded_svc::http::Method;
+use esp_idf_svc::http::client::Configuration;
 use std::path::Path;
 use std::time::Duration;
 
