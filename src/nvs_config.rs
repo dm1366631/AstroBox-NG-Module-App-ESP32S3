@@ -35,8 +35,8 @@ pub fn ensure_nvs_initialized() -> bool {
 }
 
 pub fn load_wifi_credentials() -> (String, String) {
-    let default_ssid = env!("DEFAULT_WIFI_SSID", "").to_string();
-    let default_password = env!("DEFAULT_WIFI_PASSWORD", "").to_string();
+    let default_ssid = option_env!("DEFAULT_WIFI_SSID").unwrap_or("").to_string();
+    let default_password = option_env!("DEFAULT_WIFI_PASSWORD").unwrap_or("").to_string();
 
     if let Ok(ssid) = nvs_get_string(SSID_KEY) {
         if !ssid.is_empty() {

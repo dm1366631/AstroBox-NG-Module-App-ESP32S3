@@ -437,7 +437,7 @@ async fn connect_one_device(
     // Configure at compile time via MIWEAR_AUTH_KEY env var (32-char hex string).
     // Example: MIWEAR_AUTH_KEY=fd0ce943010e5112c6a35cb3ea61b968
     // An empty string means "no auth key" and will likely fail device authentication.
-    let auth_key = env!("MIWEAR_AUTH_KEY", "").to_string();
+    let auth_key = option_env!("MIWEAR_AUTH_KEY").unwrap_or("").to_string();
     if auth_key.is_empty() {
         log::warn!(
             "No MiWear auth key configured. Set MIWEAR_AUTH_KEY at compile time \
