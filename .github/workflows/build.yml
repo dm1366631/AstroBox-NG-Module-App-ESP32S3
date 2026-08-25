@@ -75,29 +75,16 @@ jobs:
           . $HOME/export-esp.sh
           cd $GITHUB_WORKSPACE
           APP_ELF=target/xtensa-esp32s3-espidf/release/app_esp32s3
-          echo "--- esptool debug ---"
-          which -a esptool esptool.py 2>/dev/null || true
-          python3 -m esptool --version 2>&1 || true
-          find "$HOME" /opt -maxdepth 8 -name "esptool.py" 2>/dev/null | head -5
-          find "$HOME" /opt -maxdepth 8 -name "esptool" -type f 2>/dev/null | head -5
-          echo "--- end debug ---"
-          if python3 -m esptool --version >/dev/null 2>&1; then
-            ESPTOOL=$(python3 -c "import esptool,os;print(os.path.join(os.path.dirname(esptool.__file__),'esptool.py'))")
-          elif command -v esptool.py >/dev/null 2>&1; then
-            ESPTOOL=$(command -v esptool.py)
-          else
-            ESPTOOL=$(find "$HOME/.espup" "$HOME/.espressif" /opt -name "esptool.py" 2>/dev/null | head -1)
-            [ -z "$ESPTOOL" ] && ESPTOOL=$(find "$HOME" -maxdepth 8 -name "esptool.py" 2>/dev/null | head -1)
-          fi
-          echo "esptool.py: $ESPTOOL"
+          pip install -q esptool 2>&1 | tail -1 || true
+          python3 -m esptool --version
           # 1) ELF -> app.bin
-          python3 "$ESPTOOL" --chip esp32s3 elf2image --flash_mode dio --flash_size 4MB -o app.bin "$APP_ELF"
+          python3 -m esptool --chip esp32s3 elf2image --flash_mode dio --flash_size 4MB -o app.bin "$APP_ELF"
           # 2) 找 bootloader / partition-table 并合并成单个 firmware.bin
           BL=$(find target -name "bootloader.bin" | head -1)
           PT=$(find target -name "partition-table.bin" | head -1)
           echo "BL=$BL PT=$PT"
           if [ -n "$BL" ] && [ -n "$PT" ]; then
-            python3 "$ESPTOOL" --chip esp32s3 merge_bin -o firmware.bin 0x0 "$BL" 0x8000 "$PT" 0x10000 app.bin
+            python3 -m esptool --chip esp32s3 merge_bin -o firmware.bin 0x0 "$BL" 0x8000 "$PT" 0x10000 app.bin
           else
             cp app.bin firmware.bin
           fi
