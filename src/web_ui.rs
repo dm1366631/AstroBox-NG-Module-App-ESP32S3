@@ -19,6 +19,7 @@
 
 use anyhow::{anyhow, Context as _, Result};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 // =============== 编译期嵌入前端 ===============
@@ -27,6 +28,47 @@ use std::sync::{Arc, Mutex};
 /// 大小约 ~30 KB，LTO 之后对 flash 尺寸影响可忽略。
 static FRONTEND_HTML: &[u8] = include_bytes!("../web_frontend.html");
 const FRONTEND_CTYPE: &str = "text/html; charset=utf-8";
+
+// =============== 首次配置模式（AP 热点） ===============
+/// 是否处于 AP 配置模式（Wi-Fi 凭据为空 → 开热点让用户配网）。
+pub static SETUP_MODE: AtomicBool = AtomicBool::new(false);
+/// 用户已通过 /api/wifi/config 提交凭据（main.rs 轮询到后重启进 STA）。
+pub static SETUP_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// AP 配置模式的极简页面（无依赖单页）。
+static SETUP_HTML: &[u8] = br#"<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AstroBox WiFi 配置</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:420px;margin:48px auto;padding:0 16px;background:#121212;color:#eee}
+h2{font-size:20px;margin-bottom:6px}
+.hint{font-size:13px;color:#9a9a9a;line-height:1.6}
+input{width:100%;padding:11px;margin:10px 0;box-sizing:border-box;border:1px solid #3a3a3a;border-radius:8px;background:#1e1e1e;color:#eee;font-size:15px}
+button{width:100%;padding:13px;margin-top:8px;background:#4c8dff;color:#fff;border:0;border-radius:8px;font-size:16px;cursor:pointer}
+button:active{opacity:.85}
+</style></head>
+<body>
+<h2>AstroBox WiFi 配置</h2>
+<p class="hint">设备处于配置模式热点。填写要连接的 WiFi 名称和密码，保存后设备将自动重启并连接。</p>
+<input id="ssid" placeholder="WiFi 名称 (SSID)" autocomplete="off">
+<input id="pass" type="password" placeholder="WiFi 密码" autocomplete="off">
+<button onclick="save()">保存并重启</button>
+<p id="msg" class="hint"></p>
+<script>
+async function save(){
+  var s=document.getElementById('ssid').value.trim();
+  if(!s){alert('请输入 WiFi 名称');return}
+  var p=document.getElementById('pass').value;
+  document.getElementById('msg').textContent='保存中...';
+  try{
+    var r=await fetch('/api/wifi/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,password:p})});
+    var j=await r.json();
+    document.getElementById('msg').textContent=j.ok?'已保存，设备即将重启，请稍候连接新的 WiFi...':'保存失败: '+JSON.stringify(j);
+  }catch(e){document.getElementById('msg').textContent='请求失败: '+e}
+}
+</script>
+</body></html>"#;
 
 // =============== API 入/出参 ===============
 
@@ -175,6 +217,7 @@ pub struct WebServer {
 /// handler 同步执行，不能 `await`。对于需要 async 的安装/登记/小米 API，
 /// handler 通过 mpsc::Sender 发消息给 main.rs 的 LocalSet，立即以 202 响应。
 pub struct Context {
+    pub setup_mode: bool,
     pub sd_root: Option<std::path::PathBuf>,
     pub ble_devices: Arc<Mutex<Vec<DeviceView>>>,
     pub wifi_info: Arc<Mutex<(bool, String)>>, // connected, ip
@@ -208,6 +251,21 @@ pub enum PluginCmd {
     List,
 }
 
+// =============== WiFi 配置接口（AP 首次配置 + STA 常规修改） ===============
+
+#[derive(Deserialize)]
+pub struct WifiConfigRequest {
+    pub ssid: String,
+    pub password: String,
+}
+
+#[derive(Serialize)]
+pub struct WifiStatusResponse {
+    pub setup_mode: bool,
+    pub ip: String,
+    pub configured: bool,
+}
+
 /// 启动 HTTP server（端口 80）。返回后 server 在 ESP-IDF 的内部 httpd task
 /// 里长期运行；`WebServer` drop 会 `httpd_stop` 并释放。
 pub fn start(ctx: Context) -> Result<WebServer> {
@@ -228,7 +286,12 @@ pub fn start(ctx: Context) -> Result<WebServer> {
 
     // ============ 静态资源 ============
     srv.fn_handler("/", Method::Get, |req| {
-        let len = FRONTEND_HTML.len();
+        let page: &[u8] = if SETUP_MODE.load(Ordering::Acquire) {
+            SETUP_HTML
+        } else {
+            FRONTEND_HTML
+        };
+        let len = page.len();
         let mut resp = req.into_response(
             200,
             None,
@@ -237,11 +300,16 @@ pub fn start(ctx: Context) -> Result<WebServer> {
                 ("Content-Length", &len.to_string()),
             ],
         )?;
-        resp.write_all(FRONTEND_HTML)
+        resp.write_all(page)
     })
     .map_err(|e| anyhow!("register /: {e:?}"))?;
     srv.fn_handler("/index.html", Method::Get, |req| {
-        let len = FRONTEND_HTML.len();
+        let page: &[u8] = if SETUP_MODE.load(Ordering::Acquire) {
+            SETUP_HTML
+        } else {
+            FRONTEND_HTML
+        };
+        let len = page.len();
         let mut resp = req.into_response(
             200,
             None,
@@ -250,14 +318,83 @@ pub fn start(ctx: Context) -> Result<WebServer> {
                 ("Content-Length", &len.to_string()),
             ],
         )?;
-        resp.write_all(FRONTEND_HTML)
+        resp.write_all(page)
     })
     .map_err(|e| anyhow!("register /index.html: {e:?}"))?;
 
     // ============ /api/* ：一条 handler 内部分发，避免 fn_handler 过多 ============
     // main.rs 传入 Context 的 &'static ref 通过 leak_box：EspHttpServer 在独立
     // httpd task 中回调，闭包需为 'static。
+    SETUP_MODE.store(ctx.setup_mode, Ordering::Release);
     let ctx: &'static Context = Box::leak(Box::new(ctx));
+
+    // GET /api/wifi/status → 当前 WiFi 状态（AP 配置模式 / STA IP / 是否已配置）
+    srv.fn_handler("/api/wifi/status", Method::Get, move |req| {
+        let (_, ip) = ctx
+            .wifi_info
+            .lock()
+            .map(|g| (g.0, g.1.clone()))
+            .unwrap_or_default();
+        let ip = if ctx.setup_mode {
+            "192.168.4.1".to_string()
+        } else {
+            ip
+        };
+        let body = serde_json::to_vec(&WifiStatusResponse {
+            setup_mode: ctx.setup_mode,
+            ip,
+            configured: !ctx.setup_mode,
+        })
+        .unwrap_or_default();
+        send_json(req, 200, &body)
+    })
+    .map_err(|e| anyhow!("register /api/wifi/status: {e:?}"))?;
+
+    // POST /api/wifi/config → 保存 WiFi 凭据到 NVS；AP 模式下同时置 SETUP_REQUESTED
+    srv.fn_handler("/api/wifi/config", Method::Post, move |mut req| {
+        use embedded_svc::io::Read;
+        let mut buf = [0u8; 1024];
+        let mut body_vec = Vec::<u8>::with_capacity(256);
+        loop {
+            let n = match req.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => break,
+            };
+            if n == 0 {
+                break;
+            }
+            body_vec.extend_from_slice(&buf[..n]);
+            if body_vec.len() > 4096 {
+                break;
+            }
+        }
+        let (status, bytes) = match serde_json::from_slice::<WifiConfigRequest>(&body_vec) {
+            Ok(cfg) => {
+                let ssid = cfg.ssid.trim().to_string();
+                if ssid.is_empty() {
+                    (400, json_err("ssid 不能为空"))
+                } else {
+                    match crate::nvs_config::save_wifi_credentials(&ssid, cfg.password.trim()) {
+                        Ok(()) => {
+                            SETUP_REQUESTED.store(true, Ordering::Release);
+                            let body = serde_json::to_vec(&OkResponse {
+                                ok: true,
+                                note: Some("WiFi 已保存，设备即将重启".into()),
+                                fw_version: None,
+                                build_time: None,
+                            })
+                            .unwrap_or_default();
+                            (202, body)
+                        }
+                        Err(e) => (500, json_err(&format!("保存失败: {e}"))),
+                    }
+                }
+            }
+            Err(e) => (400, json_err(&format!("bad json: {e}"))),
+        };
+        send_json(req, status, &bytes)
+    })
+    .map_err(|e| anyhow!("register /api/wifi/config: {e:?}"))?;
 
     // GET /api/ping → fw/build info (minimal bootstrap-friendly)
     srv.fn_handler("/api/ping", Method::Get, move |req| {

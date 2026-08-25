@@ -139,16 +139,28 @@ async fn run_app() -> anyhow::Result<()> {
     } = pins;
 
     // ===== 2. Wi-Fi（先起来，便于 SD 日志拿 NTP 时间；也为 repo_net 做准备） =====
+    //      凭据为空 → 进入 AP 配置模式（开热点 AstroBox-Setup，用户配完自动重启进 STA）。
     let (wifi_ssid, wifi_password) = nvs_config::load_wifi_credentials();
-    let mut wifi = init_wifi_with_retry(modem, &wifi_ssid, &wifi_password).await?;
+    let setup_mode = wifi_ssid.is_empty();
+    let mut wifi = if setup_mode {
+        log::warn!("未配置 WiFi 凭据，进入 AP 配置模式：热点 AstroBox-Setup @ 192.168.4.1");
+        init_wifi_ap_mode(modem)?
+    } else {
+        init_wifi_with_retry(modem, &wifi_ssid, &wifi_password).await?
+    };
 
-    if let Err(e) = nvs_config::save_wifi_credentials(&wifi_ssid, &wifi_password) {
-        log::debug!("Initial Wi-Fi credentials save skipped: {e}");
+    if setup_mode {
+        // AP 配置模式：保留 wifi 句柄（热点保持），不启动 STA 重连 watchdog。
+        // 用户在 Web 页面提交凭据后由下方 setup 循环触发重启。
+        let _ = &wifi;
+    } else {
+        if let Err(e) = nvs_config::save_wifi_credentials(&wifi_ssid, &wifi_password) {
+            log::debug!("Initial Wi-Fi credentials save skipped: {e}");
+        }
+        tokio::task::spawn_local(async move {
+            wifi_reconnect_watchdog(wifi, wifi_ssid, wifi_password).await;
+        });
     }
-
-    tokio::task::spawn_local(async move {
-        wifi_reconnect_watchdog(wifi, wifi_ssid, wifi_password).await;
-    });
 
     // ===== 3. SNTP：让日志 / 文件修改时间接近真实 UTC =====
     // sdkconfig.defaults 已经开启 CONFIG_LWIP_SNTP_ENABLED=y；这里做一次
@@ -308,6 +320,7 @@ async fn run_app() -> anyhow::Result<()> {
         //    以保证整个固件生命周期存活。
         let sd_root_pb: Option<std::path::PathBuf> = sd_root_opt.map(|p| p.to_path_buf());
         let ctx = web_ui::Context {
+            setup_mode,
             sd_root: sd_root_pb,
             ble_devices: ble_devices.clone(),
             wifi_info,
@@ -330,6 +343,21 @@ async fn run_app() -> anyhow::Result<()> {
                 Err(e) => log::warn!("[webui] start FAILED — disabled. {e:?}"),
             })
             .expect("webui server thread spawn");
+
+        // 5) AP 配置模式：轮询用户是否已通过 Web 页面提交 WiFi 凭据，提交后重启进 STA
+        if setup_mode {
+            tokio::task::spawn_local(async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    if web_ui::SETUP_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
+                        log::warn!("WiFi 凭据已保存，重启进入 STA 模式...");
+                        std::thread::sleep(Duration::from_millis(600));
+                        unsafe { esp_idf_sys::esp_restart(); }
+                    }
+                }
+            });
+        }
 
         // 4) 工作任务：轮询各通道并在 LocalSet 上跑真实 async 逻辑
         // 4a) install worker: 调 install_* / install_from_repo 或 local_packages::install_local
@@ -740,6 +768,28 @@ fn spawn_sntp_init_best_effort() {
 }
 
 // ---- 以下函数保持之前版本（略作格式整理） ----
+
+/// AP 配置模式：把 ESP32 配成开放热点 `AstroBox-Setup`（192.168.4.1），
+/// 供用户首次配置 WiFi。凭据为空时由 run_app 调用。
+fn init_wifi_ap_mode(modem: Modem) -> anyhow::Result<BlockingWifi<EspWifi<'static>>> {
+    use esp_idf_svc::wifi::AccessPointConfiguration;
+    let sys_loop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
+    let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
+    let config = Configuration::AccessPoint(AccessPointConfiguration {
+        ssid: "AstroBox-Setup"
+            .try_into()
+            .map_err(|_| anyhow!("AP SSID too long"))?,
+        password: "".try_into().map_err(|_| anyhow!("AP password bad"))?,
+        auth_method: AuthMethod::None,
+        ..Default::default()
+    });
+    wifi.set_configuration(&config)?;
+    wifi.start()?;
+    wifi.wait_netif_up()?;
+    log::info!("AP mode up: SSID=AstroBox-Setup, IP=192.168.4.1");
+    Ok(wifi)
+}
 
 async fn init_wifi_with_retry(
     modem: Modem,
