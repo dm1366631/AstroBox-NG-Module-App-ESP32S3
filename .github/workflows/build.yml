@@ -77,8 +77,10 @@ jobs:
           APP_ELF=target/xtensa-esp32s3-espidf/release/app_esp32s3
           if python3 -m esptool --version >/dev/null 2>&1; then
             ESPTOOL=$(python3 -c "import esptool,os;print(os.path.join(os.path.dirname(esptool.__file__),'esptool.py'))")
+          elif command -v esptool.py >/dev/null 2>&1; then
+            ESPTOOL=$(command -v esptool.py)
           else
-            ESPTOOL=$(find ~/.espressif -name "esptool.py" | head -1)
+            ESPTOOL=$(find "$HOME/.espup" "$HOME/.espressif" /opt -name "esptool.py" 2>/dev/null | head -1)
           fi
           echo "esptool.py: $ESPTOOL"
           # 1) ELF -> app.bin
