@@ -76,7 +76,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           APP_ELF=target/xtensa-esp32s3-espidf/release/app_esp32s3
           pip install -q esptool 2>&1 | tail -1 || true
-          python3 -m esptool --version
+          python3 -m esptool version || true
           # 1) ELF -> app.bin
           python3 -m esptool --chip esp32s3 elf2image --flash_mode dio --flash_size 4MB -o app.bin "$APP_ELF"
           # 2) 找 bootloader / partition-table 并合并成单个 firmware.bin
