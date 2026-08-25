@@ -244,6 +244,7 @@ pub async fn launch_quick_app(addr: &str, package_name: &str) -> anyhow::Result<
     info!("Launching quick app {} on {}...", package_name, addr);
 
     let app_info = resolve_app_info(addr, package_name).await?;
+    let package_name_owned = package_name.to_string();
 
     with_device_async(addr, move |world, entity| {
         if world.get::<ThirdpartyAppComponent>(entity).is_none() {
@@ -253,7 +254,7 @@ pub async fn launch_quick_app(addr: &str, package_name: &str) -> anyhow::Result<
             .get_mut::<ThirdpartyAppSystem>(entity)
             .ok_or_else(|| anyhow::anyhow!("ThirdpartyAppSystem missing"))?;
         system.launch_app(&app_info, "");
-        info!("Launch request sent for {}", package_name);
+        info!("Launch request sent for {}", package_name_owned);
         Ok(())
     })
     .await
@@ -272,6 +273,7 @@ pub async fn send_phone_message(
     );
 
     let app_info = resolve_app_info(addr, package_name).await?;
+    let package_name_owned = package_name.to_string();
 
     with_device_async(addr, move |world, entity| {
         if world.get::<ThirdpartyAppComponent>(entity).is_none() {
@@ -281,7 +283,7 @@ pub async fn send_phone_message(
             .get_mut::<ThirdpartyAppSystem>(entity)
             .ok_or_else(|| anyhow::anyhow!("ThirdpartyAppSystem missing"))?;
         system.send_phone_message(&app_info, payload);
-        info!("Phone message sent to app {}", package_name);
+        info!("Phone message sent to app {}", package_name_owned);
         Ok(())
     })
     .await

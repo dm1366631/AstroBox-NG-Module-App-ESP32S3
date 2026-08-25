@@ -455,7 +455,7 @@ async fn run_app() -> anyhow::Result<()> {
                         },
                     ),
                     web_ui::MiCmd::Logout => {
-                        web_ui::MiResp::Logout(mi_account::logout())
+                        web_ui::MiResp::Logout(mi_account::logout().map_err(|e| format!("{e:#}")))
                     }
                     web_ui::MiCmd::ListDevices => {
                         let result = match mi_account::load_session() {
