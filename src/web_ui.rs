@@ -36,7 +36,7 @@ pub static SETUP_MODE: AtomicBool = AtomicBool::new(false);
 pub static SETUP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// AP 配置模式的极简页面（无依赖单页）。
-static SETUP_HTML: &[u8] = br#"<!DOCTYPE html>
+static SETUP_HTML: &str = r#"<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AstroBox WiFi 配置</title>
@@ -287,7 +287,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     // ============ 静态资源 ============
     srv.fn_handler("/", Method::Get, |req| {
         let page: &[u8] = if SETUP_MODE.load(Ordering::Acquire) {
-            SETUP_HTML
+            SETUP_HTML.as_bytes()
         } else {
             FRONTEND_HTML
         };
@@ -305,7 +305,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /: {e:?}"))?;
     srv.fn_handler("/index.html", Method::Get, |req| {
         let page: &[u8] = if SETUP_MODE.load(Ordering::Acquire) {
-            SETUP_HTML
+            SETUP_HTML.as_bytes()
         } else {
             FRONTEND_HTML
         };
