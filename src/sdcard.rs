@@ -103,7 +103,6 @@ impl SdCard {
         let _ = &self.mounted;
         0
     }
-}
 
     /// 挂载 MicroSD 并创建目录结构。
     ///

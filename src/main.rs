@@ -888,9 +888,8 @@ async fn read_first_device_snapshot() -> Option<DeviceSnapshot> {
         let entity = rt.device_entity(&device_id)?;
         let world = rt.world();
         let dev = world.get::<XiaomiDevice>(entity)?;
-        let speed = world
-            let _ = world.get::<NetworkComponent>(entity);
-            SpeedSnapshot::default()
+        let _ = world.get::<NetworkComponent>(entity);
+        let speed = SpeedSnapshot::default();
         Some(DeviceSnapshot {
             device_id,
             device_name: dev.name().to_string(),
