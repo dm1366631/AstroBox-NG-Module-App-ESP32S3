@@ -86,7 +86,7 @@ pub fn nvs_get_string_ns(namespace: &str, key: &str) -> Result<String, String> {
     }
 
     let mut buf = vec![0u8; MAX_STR_SIZE_GENERIC];
-    let mut len = buf.len() as u32;
+    let mut len = buf.len() as usize;
     // SAFETY: buf 是有效可变 slice，len 初始化为 buf.len()。
     let ret = unsafe { nvs_get_str(handle, c_key.as_ptr(), buf.as_mut_ptr(), &mut len) };
 

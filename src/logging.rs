@@ -342,7 +342,7 @@ impl EspLoggerBackend {
                 level,
                 target.as_ptr(),
                 b"%s\0".as_ptr() as *const i8,
-                msg.as_ptr(),
+                msg.as_ptr() as *const i8,
             );
         }
     }

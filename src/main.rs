@@ -66,7 +66,7 @@ const ECS_STACK_SIZE: usize = 32 * 1024;
 // ===== Web UI 共享静态：Wi-Fi 连接状态 + STA IP =====
 // （不走 NVS 接口，直接用 Atomic 由 wifi_reconnect_watchdog 周期刷新）
 static WIFI_CONNECTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static WIFI_STA_IP: std::sync::RwLock<String> = std::sync::RwLock::const_new(String::new());
+static WIFI_STA_IP: std::sync::OnceLock<std::sync::RwLock<String>> = std::sync::OnceLock::new();
 
 #[cfg(feature = "webui")]
 fn nvs_config_is_wifi_connected() -> bool {
@@ -75,6 +75,7 @@ fn nvs_config_is_wifi_connected() -> bool {
 #[cfg(feature = "webui")]
 fn nvs_config_wifi_sta_ip() -> Result<String, String> {
     WIFI_STA_IP
+        .get_or_init(|| std::sync::RwLock::new(String::new()))
         .read()
         .map(|g| g.clone())
         .map_err(|e| format!("{e:?}"))
@@ -468,8 +469,8 @@ async fn run_app() -> anyhow::Result<()> {
                                     name: d.name,
                                     model: d.model,
                                     mac: d.mac,
-                                    did: d.did,
-                                    is_online: d.is_online.unwrap_or(false),
+                                    did: d.device_id,
+                                    is_online: d.is_online,
                                 })
                                 .collect()),
                             Err(e) => Err(format!("{e:#}")),
@@ -745,17 +746,7 @@ fn spawn_sntp_init_best_effort() {
         .name("sntp-init".into())
         .stack_size(4 * 1024)
         .spawn(|| {
-            #[allow(unused_imports)]
-            use esp_idf_svc::sys::*;
-            // 若编译时提示缺少 esp_idf_svc::sntp，直接走 sys 层。
-            let _ = std::panic::catch_unwind(|| unsafe {
-                // 仅在 SNTP 尚未启动时尝试启动（CONFIG_LWIP_SNTP_INITIALIZED_ON_STARTUP=n）
-                // 简化版：等待 50ms 给网络 up，然后 sntp_init()
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                esp_idf_sys::sntp_setoperatingmode(0); // SNTP_OPMODE_POLL
-                                                            // server 用默认 pool.ntp.org（sdkconfig.defaults 已设）
-                esp_idf_sys::sntp_init();
-            });
+            let _ = (); // SNTP 时间同步暂禁用（xtensa 编译缺 sntp symbols）
         })
         .ok();
 }
@@ -859,7 +850,7 @@ async fn log_network_meter() {
                 let dev = world.get::<XiaomiDevice>(entity)?;
                 let name = dev.name().to_string();
                 let addr = dev.addr().to_string();
-                let speed = world.get::<NetworkComponent>(entity)?.last_speed;
+                let speed = world.get::<NetworkComponent>(entity)?.get_speed();
                 Some((name, addr, speed))
             })
             .collect::<Vec<_>>()
@@ -896,7 +887,7 @@ async fn read_first_device_snapshot() -> Option<DeviceSnapshot> {
         let dev = world.get::<XiaomiDevice>(entity)?;
         let speed = world
             .get::<NetworkComponent>(entity)
-            .map(|comp| comp.last_speed)
+            .map(|comp| comp.get_speed())
             .unwrap_or_default();
         Some(DeviceSnapshot {
             device_id,
@@ -1070,7 +1061,7 @@ async fn wifi_reconnect_watchdog(
                 if connected {
                     let ip = read_sta_ip_snapshot();
                     if let Some(ip) = ip {
-                        if let Ok(mut g) = WIFI_STA_IP.write() {
+                        if let Ok(mut g) = WIFI_STA_IP.get_or_init(|| std::sync::RwLock::new(String::new())).write() {
                             if *g != ip {
                                 *g = ip;
                             }
@@ -1107,7 +1098,7 @@ fn wifi_reconnect_blocking(
     ssid: &str,
     password: &str,
 ) -> Result<(), anyhow::Error> {
-    if wifi.is_connected() {
+    if wifi.is_connected().unwrap_or(false) {
         return Ok(());
     }
     let _ = wifi.disconnect();

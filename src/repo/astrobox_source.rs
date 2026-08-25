@@ -39,11 +39,12 @@ struct IndexRow {
 /// `device_code` 如 `Some("n67")` 用于只显示目标型号支持的条目。
 /// `None` 时不做型号过滤（适合设备未连接时浏览全部免费资源）。
 pub async fn fetch_index(device_code: Option<&str>) -> Result<Vec<RepoItem>> {
-    let csv_text = net_http::get_text(INDEX_CSV_PRIMARY)
-        .await
-        .or_else(|_| async { net_http::get_text(INDEX_CSV_JSDELIVR).await })
-        .await
-        .context("fetch AstroBox index.csv (primary + jsdelivr) both failed")?;
+    let csv_text = match net_http::get_text(INDEX_CSV_PRIMARY).await {
+        Ok(t) => t,
+        Err(_) => net_http::get_text(INDEX_CSV_JSDELIVR)
+            .await
+            .context("fetch AstroBox index.csv (primary + jsdelivr) both failed")?,
+    };
 
     parse_index_csv(&csv_text, device_code)
 }
@@ -129,6 +130,7 @@ pub async fn fetch_manifest(item: &RepoItem) -> Result<RepoManifest> {
 
 fn parse_manifest(text: &str) -> Result<RepoManifest> {
     #[derive(Debug, Deserialize)]
+    #[derive(Clone)]
     struct PayloadBlock {
         url: Option<String>,
         #[serde(default)]

@@ -376,7 +376,7 @@ fn next_nonce() -> String {
         .unwrap_or(0);
     // 16 字节混合熵
     let mut bytes = [0u8; 16];
-    let seed = now ^ counter.rotate_left(17);
+    let seed = now ^ (counter as u64).rotate_left(17);
     for i in 0..16 {
         bytes[i] = (seed >> ((i & 7) * 8)) as u8 ^ (counter as u8).wrapping_mul(i as u8);
     }

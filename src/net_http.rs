@@ -199,7 +199,6 @@ where
         Ok(_) => rx,
         Err(e) => {
             // spawn 失败：直接构造一个失败 rx（drop 后 rx.recv 会返回 Canceled）
-            drop(tx);
             log::error!("spawn http-blk thread failed: {e:?}");
             rx
         }

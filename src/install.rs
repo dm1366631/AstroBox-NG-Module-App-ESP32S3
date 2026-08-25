@@ -105,7 +105,7 @@ pub async fn list_installed_quick_apps(addr: &str) -> anyhow::Result<Vec<String>
     let apps = receiver.await??;
     let names: Vec<String> = apps
         .iter()
-        .map(|a| format!("{} (pkg={})", a.name.clone(), a.package_name.clone()))
+        .map(|a| format!("{} (pkg={})", a.app_name.clone(), a.package_name.clone()))
         .collect();
     info!("Device {} has {} quick app(s) installed", addr, names.len());
     Ok(names)
@@ -353,8 +353,12 @@ pub async fn install_from_repo(
 
     let total = manifest.filesize.map(|n| n as usize);
     let file_name = item.name.clone();
-    let emit = |pct, cur| {
-        let tx = progress_tx.clone();
+    let emit_progress_tx = progress_tx.clone();
+    let emit_file_name = file_name.clone();
+    let emit_total = total;
+    let emit = move |pct: f32, cur: usize| {
+        let tx = emit_progress_tx.clone();
+        let fn_ = emit_file_name.clone();
         async move {
             let Some(tx) = tx else { return };
             let _ = tx
@@ -362,8 +366,8 @@ pub async fn install_from_repo(
                     direction: TransferDirection::Send,
                     progress_percent: pct,
                     current_bytes: cur,
-                    total_bytes: total,
-                    file_name: file_name.clone(),
+                    total_bytes: emit_total,
+                    file_name: fn_,
                 })
                 .await;
         }
@@ -381,30 +385,32 @@ pub async fn install_from_repo(
             .map_err(|e| anyhow!("read cached package {}: {e:#}", p.display()))?
     } else {
         // 下载
-        let current = AtomicU32::new(0);
+        let current_arc = std::sync::Arc::new(AtomicU32::new(0));
         let total_arc = std::sync::Arc::new(total);
         if let Some(p) = &cache_path {
             // 方式 A：流式写文件 + 后续读文件
             let _ = crate::sdcard::ensure_dir(p.parent().expect("cache in astrobox/cache"));
             let p_clone = p.clone();
             let total_for_cb = *total_arc;
-            let downloaded = crate::net_http::download_to_file(url, p_clone.clone(), |cur, ttl| {
+            let file_name_cb = file_name.clone();
+            let progress_tx_cb = progress_tx.clone();
+            let current_cb = std::sync::Arc::clone(&current_arc);
+            let downloaded = crate::net_http::download_to_file(url, p_clone.clone(), move |cur, ttl| {
                 let ttl = ttl.or(total_for_cb);
                 let pct = 50.0
                     * (match ttl {
                         Some(0) | None => 0.0,
                         Some(max) => (cur as f32 / max as f32).clamp(0.0, 1.0),
                     });
-                current.store(cur as u32, Ordering::Relaxed);
-                let tx = progress_tx.clone();
-                // 这里同步上下文，不 .await；直接 best-effort try_send
-                if let Some(tx) = tx {
+                current_cb.store(cur as u32, Ordering::Relaxed);
+                // 同步上下文，不 .await；直接 best-effort try_send
+                if let Some(tx) = progress_tx_cb.clone() {
                     let _ = tx.try_send(TransferProgress {
                         direction: TransferDirection::Send,
                         progress_percent: pct,
                         current_bytes: cur,
                         total_bytes: ttl,
-                        file_name: file_name.clone(),
+                        file_name: file_name_cb.clone(),
                     });
                 }
             })
@@ -417,6 +423,8 @@ pub async fn install_from_repo(
             // 方式 B：直接进内存
             let tx_for_cb = progress_tx.clone();
             let total_local = total;
+            let file_name_cb = file_name.clone();
+            let current_cb = std::sync::Arc::clone(&current_arc);
             let bytes = net_http::get_bytes_with_progress(url, move |cur, ttl| {
                 let ttl = ttl.or(total_local);
                 let pct = 50.0
@@ -424,14 +432,14 @@ pub async fn install_from_repo(
                         Some(0) | None => 0.0,
                         Some(max) => (cur as f32 / max as f32).clamp(0.0, 1.0),
                     });
-                current.store(cur as u32, Ordering::Relaxed);
-                if let Some(tx) = tx_for_cb.as_ref() {
+                current_cb.store(cur as u32, Ordering::Relaxed);
+                if let Some(tx) = tx_for_cb.clone() {
                     let _ = tx.try_send(TransferProgress {
                         direction: TransferDirection::Send,
                         progress_percent: pct,
                         current_bytes: cur,
                         total_bytes: ttl,
-                        file_name: file_name.clone(),
+                        file_name: file_name_cb.clone(),
                     });
                 }
             })

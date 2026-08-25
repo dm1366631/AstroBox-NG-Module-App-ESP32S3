@@ -71,7 +71,6 @@ pub fn new_spi2_bus_driver(
 }
 
 /// SD 卡相关引脚（CS 另外传入构造函数避免借用冲突）
-#[derive(Clone)]
 pub struct SdCardPins {
     pub miso: Gpio8,
     pub cs: Gpio9,

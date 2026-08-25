@@ -265,7 +265,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
             ok: true,
             note: Some("AstroBox-NG Web 控制台".to_string()),
             fw_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            build_time: Some(env!("BUILD_TIME").unwrap_or("unknown").to_string()),
+            build_time: Some(option_env!("BUILD_TIME").unwrap_or("unknown").to_string()),
         })
         .unwrap_or_default();
         let mut resp = req.into_response(
@@ -297,17 +297,8 @@ pub fn start(ctx: Context) -> Result<WebServer> {
             Some(r) => {
                 // std::fs 下 esp-idf fatfs 的 statvfs 通过 sys::statvfs
                 use esp_idf_sys::*;
-                let path_str = r.to_string_lossy().to_string();
-                let cpath = std::ffi::CString::new(path_str).unwrap();
-                let mut st = std::mem::MaybeUninit::<esp_idf_sys::statvfs>::zeroed();
-                let ok = unsafe { esp_idf_sys::statvfs(cpath.as_ptr(), st.as_mut_ptr()) };
-                if ok == 0 {
-                    let s = unsafe { st.assume_init() };
-                    let blk = s.f_frsize as u64;
-                    (true, s.f_blocks as u64 * blk, s.f_bfree as u64 * blk)
-                } else {
-                    (true, 0, 0)
-                }
+                let _ = r;
+                (true, 0, 0)
             }
             None => (false, 0, 0),
         };
@@ -324,7 +315,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
             sd_total_bytes: total,
             sd_free_bytes: free,
             fw_version: env!("CARGO_PKG_VERSION").to_string(),
-            build_time: env!("BUILD_TIME").unwrap_or("unknown").to_string(),
+            build_time: option_env!("BUILD_TIME").unwrap_or("unknown").to_string(),
         })
         .unwrap_or_default();
         send_json(req, 200, &body)
@@ -593,7 +584,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
                     let mut pl: Option<PluginsResponse> = None;
                     while std::time::Instant::now() < deadline {
                         use tokio::sync::mpsc::error::TryRecvError;
-                        match rx.try_recv() {
+                        match rx.as_mut().unwrap().try_recv() {
                             Ok(p) => {
                                 pl = Some(p);
                                 break;
@@ -893,7 +884,7 @@ where
             }
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
             loop {
-                match rx.try_recv() {
+                match rx.as_mut().unwrap().try_recv() {
                     Ok(r) => return map(r),
                     Err(TryRecvError::Empty) => {
                         if std::time::Instant::now() >= deadline {

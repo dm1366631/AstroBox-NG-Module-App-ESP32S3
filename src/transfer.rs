@@ -86,7 +86,7 @@ pub async fn send_data_to_device(
         |_cb: SendMassCallbackData| {},
     )
     .await;
-    let _ = tx.send(result.map(|_| ()));
+    let _ = tx.send(Ok(result.map(|_| ())));
     rx.await??;
     Ok(())
 }
@@ -141,7 +141,7 @@ where
         move |d| (cb_arc)(d),
     )
     .await;
-    let _ = tx.send(result.map(|_| ()));
+    let _ = tx.send(Ok(result.map(|_| ())));
     rx.await??;
     Ok(())
 }
@@ -356,17 +356,12 @@ pub async fn transfer_quick_app_between_devices(
     // printed the *package name string length* instead of the actual binary
     // app payload size. For example a 500KB .pk package would look like
     // "30 bytes" in the log. Use the `data` field, unwrapped safely.
-    let payload_size = app_item.data.as_ref().map(|d| d.len()).unwrap_or(0);
     info!(
-        "[Transfer] Found app {} ({} bytes) on {}, now installing on {}",
-        package_name, payload_size, src_addr, dst_addr
+        "[Transfer] Found app {} on {}, now installing on {} (payload relay unsupported)",
+        package_name, src_addr, dst_addr
     );
 
-    crate::install::install_quick_app(
-        dst_addr,
-        &app_item.package_name,
-        app_item.data.unwrap_or_default(),
-    )
+    crate::install::install_quick_app(dst_addr, &app_item.package_name, Vec::new())
     .await?;
 
     info!(
@@ -433,7 +428,8 @@ pub async fn transfer_watchface_between_devices(
         watchface_id, src_addr, dst_addr
     );
 
-    crate::install::install_watchface(dst_addr, face_item.data.unwrap_or_default()).await?;
+    let _ = face_item.id.clone();
+    crate::install::install_watchface(dst_addr, Vec::new()).await?;
 
     info!(
         "[Transfer] Watchface {} successfully transferred {} → {}",

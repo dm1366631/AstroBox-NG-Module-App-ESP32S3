@@ -10,7 +10,7 @@ use corelib::device::{
     },
     DeviceKind,
 };
-use esp32_nimble::{utilities::BleUuid, utilities::BleUuid::Uuid16, BLEDevice, BLEScan};
+use esp32_nimble::{utilities::BleUuid, utilities::BleUuid::Uuid16, BLEAddress, BLEAddressType, BLEDevice, BLEScan};
 use log::info;
 use std::{
     collections::HashSet,
@@ -220,7 +220,7 @@ async fn scan_all_supported_devices(ble: &BLEDevice) -> anyhow::Result<Vec<(Stri
 
     let mut discovered: Vec<(String, String)> = Vec::new();
 
-    scan.start(ble, SCAN_TIMEOUT_MS, |dev, adv| {
+    scan.start(ble, SCAN_TIMEOUT_MS as i32, |dev, adv| {
         let fe95_match = adv.service_uuids().any(|u| u == mi_service);
         let name = adv.name().map(|n| n.to_string());
         let name_match = name
@@ -307,7 +307,7 @@ async fn connect_one_device(
             let is_new = {
                 let mut guard = match pending.lock() {
                     Ok(g) => g,
-                    Err(_poisoned) => pending.into_inner().unwrap(),
+                    Err(poisoned) => poisoned.into_inner(),
                 };
                 guard.insert(disconnect_addr.clone())
             };
@@ -318,7 +318,9 @@ async fn connect_one_device(
     });
 
     info!("Connecting to {} ({})...", device_name, addr);
-    client.connect(addr).await?;
+    let addr_ble = BLEAddress::from_str(addr, BLEAddressType::Public)
+        .ok_or_else(|| anyhow::anyhow!("invalid BLE address: {addr}"))?;
+    client.connect(&addr_ble).await?;
     info!(
         "Connected to {} (connected={})",
         device_name,
@@ -469,6 +471,9 @@ async fn connect_one_device(
         auth_key,
         sar_version,
         ConnectType::BLE,
+        None,
+        None,
+        None,
         false,
         move |data| {
             let fut = send_cb(data);
