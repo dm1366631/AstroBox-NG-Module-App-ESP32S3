@@ -56,6 +56,14 @@ jobs:
           else
             echo "memmap2 not in dependency tree, skipping"
           fi
+          # Patch zip 0.6.6 (corelib dep) for Xtensa
+          ZIP_DIR=$(find ~/.cargo/registry/src -type d -name "zip-0.6*" | head -1)
+          if [ -n "$ZIP_DIR" ]; then
+            echo "Patching zip at: $ZIP_DIR"
+            python3 "$GITHUB_WORKSPACE/.github/patch_zip.py" "$ZIP_DIR"
+          else
+            echo "zip 0.6 not in dependency tree, skipping"
+          fi
       - name: Build release firmware
         run: |
           . $HOME/export-esp.sh
