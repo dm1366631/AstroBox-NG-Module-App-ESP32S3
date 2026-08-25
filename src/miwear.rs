@@ -312,7 +312,7 @@ async fn connect_one_device(
                 guard.insert(disconnect_addr.clone())
             };
             if is_new {
-                let _ = disconnect_tx.send(disconnect_addr);
+                let _ = disconnect_tx.send(disconnect_addr.clone());
             }
         }
     });
@@ -417,7 +417,7 @@ async fn connect_one_device(
     });
 
     let send_queue = Arc::new(send_tx);
-    let send_cb = {
+    let send_cb = Arc::new({
         let tx = Arc::clone(&send_queue);
         move |data: Vec<u8>| {
             let tx = Arc::clone(&tx);
@@ -430,7 +430,7 @@ async fn connect_one_device(
                     .map_err(|_| SendError::Io("send task dropped".to_string()))?
             }
         }
-    };
+    });
 
     let device_addr = addr.to_string();
     // BLE authentication key for Xiaomi wearable protocol.
@@ -475,14 +475,17 @@ async fn connect_one_device(
         None,
         None,
         false,
-        move |data: Vec<Vec<u8>>| async move {
-            for chunk in data {
-                send_cb(chunk).await.map_err(|err| {
-                    log::error!("send failed: {:?}", err);
-                    err
-                })?;
+        move |data: Vec<Vec<u8>>| {
+            let cb = Arc::clone(&send_cb);
+            async move {
+                for chunk in data {
+                    cb(chunk).await.map_err(|err| {
+                        log::error!("send failed: {:?}", err);
+                        err
+                    })?;
+                }
+                Ok(())
             }
-            Ok(())
         },
     )
     .await?;
