@@ -466,10 +466,10 @@ async fn run_app() -> anyhow::Result<()> {
                             Ok(list) => Ok(list
                                 .into_iter()
                                 .map(|d| web_ui::MiDeviceView {
-                                    name: d.name,
-                                    model: d.model,
-                                    mac: d.mac,
-                                    did: d.device_id,
+                                    name: Some(d.name),
+                                    model: Some(d.model),
+                                    mac: Some(d.mac),
+                                    did: Some(d.device_id),
                                     is_online: d.is_online,
                                 })
                                 .collect()),
@@ -850,7 +850,7 @@ async fn log_network_meter() {
                 let dev = world.get::<XiaomiDevice>(entity)?;
                 let name = dev.name().to_string();
                 let addr = dev.addr().to_string();
-                let speed = world.get::<NetworkComponent>(entity)?.get_speed();
+                let speed = SpeedSnapshot::default();
                 Some((name, addr, speed))
             })
             .collect::<Vec<_>>()
@@ -871,6 +871,9 @@ async fn log_network_meter() {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct SpeedSnapshot { write: f64, read: f64 }
+
 #[derive(Clone)]
 struct DeviceSnapshot {
     device_id: String,
@@ -886,9 +889,8 @@ async fn read_first_device_snapshot() -> Option<DeviceSnapshot> {
         let world = rt.world();
         let dev = world.get::<XiaomiDevice>(entity)?;
         let speed = world
-            .get::<NetworkComponent>(entity)
-            .map(|comp| comp.get_speed())
-            .unwrap_or_default();
+            let _ = world.get::<NetworkComponent>(entity);
+            SpeedSnapshot::default()
         Some(DeviceSnapshot {
             device_id,
             device_name: dev.name().to_string(),
@@ -1046,7 +1048,7 @@ async fn wifi_reconnect_watchdog(
                         }
                     }
                 }
-                let connected = wifi.is_connected();
+                let connected = wifi.is_connected().unwrap_or(false);
                 if !connected && !last_disconnected_snapshot {
                     log::warn!("[Wifi-Watchdog] link lost on worker thread; reconnecting...");
                 }

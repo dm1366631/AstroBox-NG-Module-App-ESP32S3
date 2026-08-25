@@ -475,14 +475,14 @@ async fn connect_one_device(
         None,
         None,
         false,
-        move |data| {
-            let fut = send_cb(data);
-            async move {
-                fut.await.map_err(|err| {
+        move |data: Vec<Vec<u8>>| async move {
+            for chunk in data {
+                send_cb(chunk).await.map_err(|err| {
                     log::error!("send failed: {:?}", err);
                     err
-                })
+                })?;
             }
+            Ok(())
         },
     )
     .await?;

@@ -341,7 +341,7 @@ impl EspLoggerBackend {
             esp_log_write(
                 level,
                 target.as_ptr(),
-                b"%s\0".as_ptr() as *const i8,
+                b"%s\0".as_ptr(),
                 msg.as_ptr() as *const i8,
             );
         }

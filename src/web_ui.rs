@@ -281,7 +281,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/ping: {e:?}"))?;
 
     // GET /api/status
-    srv.fn_handler::<Method, _>("/api/status", Method::Get, move |req| {
+    srv.fn_handler("/api/status", Method::Get, move |req| {
         // 读取 ctx 各字段快照
         let (wifi_conn, ip) = ctx
             .wifi_info
@@ -323,7 +323,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/status: {e:?}"))?;
 
     // GET /api/resources
-    srv.fn_handler::<Method, _>("/api/resources", Method::Get, move |req| {
+    srv.fn_handler("/api/resources", Method::Get, move |req| {
         // 本 handler 只"触发刷新 + 返回空列表 / 缓存"；真实 repo 抓取走 LocalSet。
         // HTTPd task 直接从 BLE 设备 devices 列表取第一个已连接 model code 做过滤，
         // 不抓网络（网络 repo 抓取需独立任务）。
@@ -334,7 +334,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/resources: {e:?}"))?;
 
     // GET /api/devices
-    srv.fn_handler::<Method, _>("/api/devices", Method::Get, move |req| {
+    srv.fn_handler("/api/devices", Method::Get, move |req| {
         let devs = ctx
             .ble_devices
             .lock()
@@ -346,7 +346,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/devices: {e:?}"))?;
 
     // GET /api/device/list_qas?addr=… / list_wfs
-    srv.fn_handler::<Method, _>("/api/device/list_qas", Method::Get, move |req| {
+    srv.fn_handler("/api/device/list_qas", Method::Get, move |req| {
         let _ = req;
         let body = serde_json::to_vec(&ListResponse {
             items: vec!["(在 main.rs 的 install_tx/list_tx 通道启用后返回真实结果)".to_string()],
@@ -355,7 +355,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
         send_json(req, 200, &body)
     })
     .map_err(|e| anyhow!("register /api/device/list_qas: {e:?}"))?;
-    srv.fn_handler::<Method, _>("/api/device/list_wfs", Method::Get, move |req| {
+    srv.fn_handler("/api/device/list_wfs", Method::Get, move |req| {
         let _ = req;
         let body = serde_json::to_vec(&ListResponse { items: Vec::new() }).unwrap_or_default();
         send_json(req, 200, &body)
@@ -363,7 +363,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/device/list_wfs: {e:?}"))?;
 
     // POST /api/install → 202，work 丢给 LocalSet install_tx
-    srv.fn_handler::<Method, _>("/api/install", Method::Post, move |mut req| {
+    srv.fn_handler("/api/install", Method::Post, move |mut req| {
         let mut buf = [0u8; 8192];
         let mut body_vec = Vec::<u8>::with_capacity(256);
         loop {
@@ -407,7 +407,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/install: {e:?}"))?;
 
     // POST /api/upload → 读取 multipart body ≤ 16 MB，写入 UploadMsg
-    srv.fn_handler::<Method, _>("/api/upload", Method::Post, move |mut req| {
+    srv.fn_handler("/api/upload", Method::Post, move |mut req| {
         // 简单但健壮：整块 body 进 RAM（≤ 16 MB 边界内 ESP32-S3 PSRAM 支持），
         // 不依赖 multipart 解析 crate（怕 Xtensa 工具链下编译不过）。
         // Content-Type: multipart/form-data; boundary=----X
@@ -490,7 +490,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/upload: {e:?}"))?;
 
     // GET/POST /api/mi-account/*
-    srv.fn_handler::<Method, _>("/api/mi-account/status", Method::Get, move |req| {
+    srv.fn_handler("/api/mi-account/status", Method::Get, move |req| {
         let (status, body) = sync_blocking_mi_cmd(ctx, MiCmd::Status, |r| match r {
             MiResp::Status(s) => (200, serde_json::to_vec(&s).unwrap_or_default()),
             _ => (500, json_err("bad mi-resp")),
@@ -498,7 +498,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
         send_json(req, status, &body)
     })
     .map_err(|e| anyhow!("register /api/mi-account/status: {e:?}"))?;
-    srv.fn_handler::<Method, _>(
+    srv.fn_handler(
         "/api/mi-account/login-password",
         Method::Post,
         move |mut req| {
@@ -537,7 +537,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
         },
     )
     .map_err(|e| anyhow!("register /api/mi-account/login-password: {e:?}"))?;
-    srv.fn_handler::<Method, _>("/api/mi-account/logout", Method::Post, move |req| {
+    srv.fn_handler("/api/mi-account/logout", Method::Post, move |req| {
         let (status, body) = sync_blocking_mi_cmd(ctx, MiCmd::Logout, |r| match r {
             MiResp::Logout(Ok(_)) => (
                 200,
@@ -555,7 +555,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
         send_json(req, status, &body)
     })
     .map_err(|e| anyhow!("register /api/mi-account/logout: {e:?}"))?;
-    srv.fn_handler::<Method, _>("/api/mi-account/devices", Method::Get, move |req| {
+    srv.fn_handler("/api/mi-account/devices", Method::Get, move |req| {
         let (status, body) = sync_blocking_mi_cmd(ctx, MiCmd::ListDevices, |r| match r {
             MiResp::ListDevices(Ok(vs)) => (
                 200,
@@ -569,7 +569,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/mi-account/devices: {e:?}"))?;
 
     // GET /api/plugins → list via plugins_tx / plugins_resp_rx
-    srv.fn_handler::<Method, _>("/api/plugins", Method::Get, move |req| {
+    srv.fn_handler("/api/plugins", Method::Get, move |req| {
         use std::ops::DerefMut;
         let (status, body) = match (
             ctx.plugins_tx.lock().ok().as_deref().cloned(),
@@ -608,7 +608,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
     .map_err(|e| anyhow!("register /api/plugins: {e:?}"))?;
 
     // POST /api/plugins/{id}/unload
-    srv.fn_handler::<Method, _>("/api/plugins/unload", Method::Post, move |mut req| {
+    srv.fn_handler("/api/plugins/unload", Method::Post, move |mut req| {
         // 简单：读 JSON { "id": "…" }
         let mut raw = Vec::<u8>::new();
         let mut buf = [0u8; 2048];
@@ -884,7 +884,7 @@ where
             }
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
             loop {
-                match rx.as_mut().unwrap().try_recv() {
+                match rx.try_recv() {
                     Ok(r) => return map(r),
                     Err(TryRecvError::Empty) => {
                         if std::time::Instant::now() >= deadline {

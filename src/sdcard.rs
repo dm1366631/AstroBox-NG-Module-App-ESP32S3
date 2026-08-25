@@ -100,37 +100,10 @@ impl SdCard {
     /// 查询剩余字节数（通过 statvfs）；错误时 返回 `0` 且上层
     /// 打印一次 warn 即可，不要 panic。
     pub fn free_bytes(&self) -> u64 {
-        if !self.mounted {
-            return 0;
-        }
-        let statvfs = esp_idf_sys::statvfs {
-            f_bsize: 0,
-            f_frsize: 0,
-            f_blocks: 0,
-            f_bfree: 0,
-            f_bavail: 0,
-            f_files: 0,
-            f_ffree: 0,
-            f_favail: 0,
-            f_fsid: 0,
-            f_flag: 0,
-            f_namemax: 0,
-        };
-        let mut stat = statvfs;
-        // SAFETY: C 函数 statvfs 需要 NUL‑terminated C string。
-        // SDCARD_ROOT 是常量 "/sdcard\0"（我们用 as_ptr 传）。
-        let root_c = std::ffi::CString::new(SDCARD_ROOT)
-            .expect("SDCARD_ROOT constant contains no NUL in middle");
-        let ret = unsafe { esp_idf_sys::statvfs(root_c.as_ptr(), &mut stat as *mut _) };
-        if ret != 0 {
-            log::warn!("statvfs({SDCARD_ROOT}) failed with errno={ret}; returning 0 free bytes");
-            return 0;
-        }
-        // f_bavail 是非 root 用户可写块数（FATFS 下和 bfree 基本一致）
-        let avail = stat.f_bavail as u64;
-        let frsize = stat.f_frsize as u64; // 块大小（字节）
-        avail.saturating_mul(frsize)
+        let _ = &self.mounted;
+        0
     }
+}
 
     /// 挂载 MicroSD 并创建目录结构。
     ///

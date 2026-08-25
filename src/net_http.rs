@@ -77,19 +77,18 @@ fn blocking_http_request_once(
     .map_err(|e| anyhow!("EspHttpConnection new: {e:?}"))?;
 
     let mut client = Client::wrap(conn);
-    let request = client
+    let mut request = client
         .request(method, url, headers)
         .map_err(|e| anyhow!("build request: {e:?}"))?;
 
-    // POST 带 body：必须用 `request.write` 之前先 `request.header(Content-Length, ...)`
-    // 再 `write(body)`，最后 `submit()`。`embedded-svc 0.27` 的 RequestBuilder
-    // 提供了 `write(body) -> io::Result<()>` 写完会自动 flush 并 submit。
-    // 这里实现兼容两种用法：
+    // embedded-svc 0.28：`write` 写 body（返回写入字节数），`submit` 提交请求。
     let mut response = if let Some(b) = body {
-        // 写 body 同时 submit
         request
             .write(b)
-            .map_err(|e| anyhow!("write body + submit: {e:?}"))?
+            .map_err(|e| anyhow!("write body: {e:?}"))?;
+        request
+            .submit()
+            .map_err(|e| anyhow!("submit request: {e:?}"))?
     } else {
         request
             .submit()

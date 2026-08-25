@@ -50,10 +50,11 @@ pub async fn send_data_to_device(
 
     // `with_device_mut` is a synchronous closure, so we can't await inside it.
     // Extract the owner_id synchronously, then run the async transfer outside.
+    let tx_err = tx.clone();
     let owner_id: Option<String> = ecs::with_rt_mut(move |rt| {
         rt.with_device_mut(&addr_owned, |world, entity| {
             if world.get::<MassComponent>(entity).is_none() {
-                let _ = tx.send(Err(anyhow::anyhow!(
+                let _ = tx_err.send(Err(anyhow::anyhow!(
                     "MassComponent missing on device {}",
                     addr_owned
                 )));
@@ -62,7 +63,7 @@ pub async fn send_data_to_device(
             match world.get::<MassSystem>(entity) {
                 Some(s) => Some(s.owner_id.clone()),
                 None => {
-                    let _ = tx.send(Err(anyhow::anyhow!(
+                    let _ = tx_err.send(Err(anyhow::anyhow!(
                         "MassSystem missing on device {}",
                         addr_owned
                     )));
@@ -105,10 +106,11 @@ where
     let cb_arc: Arc<dyn Fn(SendMassCallbackData) + Send + Sync> = Arc::new(progress_cb);
 
     // Synchronous closure: extract owner_id, run async transfer outside.
+    let tx_err = tx.clone();
     let owner_id: Option<String> = ecs::with_rt_mut(move |rt| {
         rt.with_device_mut(&addr_owned, |world, entity| {
             if world.get::<MassComponent>(entity).is_none() {
-                let _ = tx.send(Err(anyhow::anyhow!(
+                let _ = tx_err.send(Err(anyhow::anyhow!(
                     "MassComponent missing on device {}",
                     addr_owned
                 )));
@@ -117,7 +119,7 @@ where
             match world.get::<MassSystem>(entity) {
                 Some(s) => Some(s.owner_id.clone()),
                 None => {
-                    let _ = tx.send(Err(anyhow::anyhow!(
+                    let _ = tx_err.send(Err(anyhow::anyhow!(
                         "MassSystem missing on device {}",
                         addr_owned
                     )));
@@ -171,6 +173,7 @@ pub async fn forward_app_message(
     let app_info = resolve_app_info(dst_addr, package_name).await?;
 
     let dst_owned = dst_addr.to_string();
+    let package_name_owned = package_name.to_string();
     let (tx, rx) = oneshot::channel();
 
     ecs::with_rt_mut(move |rt| {
@@ -195,7 +198,7 @@ pub async fn forward_app_message(
             system.send_phone_message(&app_info, payload);
             info!(
                 "[Transfer] Message forwarded to {} app on {}",
-                package_name, dst_owned
+                package_name_owned, dst_owned
             );
             let _ = tx.send(Ok(()));
         });
