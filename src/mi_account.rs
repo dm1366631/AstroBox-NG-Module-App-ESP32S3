@@ -367,7 +367,7 @@ fn compute_login_sign(qs: &str, password_md5: &str) -> String {
 fn next_nonce() -> String {
     use base64::Engine;
     let counter = {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     };
     let now = std::time::SystemTime::now()
@@ -386,7 +386,7 @@ fn next_nonce() -> String {
 /// 生成 JSONP 回调名：`jsonp_<rand>`
 fn next_callback_name() -> String {
     let n = {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     };
     format!("jsonp_callback_{n}")

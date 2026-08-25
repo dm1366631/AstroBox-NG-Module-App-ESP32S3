@@ -42,6 +42,7 @@ pub mod mi_account;
 pub mod miwear;
 pub mod net_http;
 pub mod nvs_config;
+pub mod package_format;
 pub mod ota;
 #[cfg(feature = "plugin_runtime")]
 pub mod plugin_runtime;
@@ -357,80 +358,69 @@ async fn run_app() -> anyhow::Result<()> {
             }
         });
 
-        // 4b) upload worker: 写 SD → local_csv_source::add_local_entry
+        // 4b) upload worker: 解析上传的 .rpk/.bin 并直接通过 ABNG BLE 安装到设备。
+        //     不依赖 SD 卡（ble-web 全 Web 管理、无 SD 卡依赖）。
         let shared_state_u = shared_state.clone();
+        let ble_devices_u = ble_devices.clone();
         let mut urx = webui_upload_rx.take().unwrap();
         tokio::task::spawn_local(async move {
             while let Some(web_ui::UploadMsg::Register {
                 orig_name,
-                ext,
+                ext: _ext,
                 bytes,
-                restype,
+                restype: _restype,
                 devices,
             }) = urx.recv().await
             {
-                let shared = shared_state_u.clone();
-                let (orig, ex) = (orig_name.clone(), ext.clone());
+                let ble_devices = ble_devices_u.clone();
+                let _ = shared_state_u.clone();
                 tokio::task::spawn_local(async move {
-                    if let Some(root) = {
-                        let ss = shared.borrow();
-                        ss.sd_root.map(|p| p.to_path_buf())
-                    } {
-                        // restype 规范化
-                        use crate::repo::{local_csv_source, RepoType};
-                        let rt = if restype.eq_ignore_ascii_case("watchface")
-                            || ext.eq_ignore_ascii_case("mwz")
-                            || ext.eq_ignore_ascii_case("face")
-                        {
-                            RepoType::Watchface
-                        } else if restype.eq_ignore_ascii_case("plugin")
-                            || ext.eq_ignore_ascii_case("abp")
-                        {
-                            // 插件不走 Repo 登记（插件 manifest 独立），直接落盘到 packages
-                            let _ =
-                                local_packages::classify_dir_path(&root, &orig, &ex, bytes).await;
+                    let pkg = match crate::package_format::parse_package(&orig_name, &bytes) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::error!("[webui/upload] 解析 {} 失败: {}", orig_name, e);
                             return;
-                        } else if restype.eq_ignore_ascii_case("resource")
-                            || ext.eq_ignore_ascii_case("bin")
-                        {
-                            // ResourceBin 也直接落盘 packages/ 不走 repo index
-                            let _ =
-                                local_packages::classify_dir_path(&root, &orig, &ex, bytes).await;
-                            return;
-                        } else {
-                            RepoType::QuickApp
-                        };
-                        // 写 SD → local index.csv
-                        match local_csv_source::write_uploaded_bytes(&root, &orig, &ex, &bytes)
-                            .await
-                        {
-                            Ok(abs_path) => {
-                                let name_stem = std::path::Path::new(&orig)
-                                    .file_stem()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or(&orig)
-                                    .to_string();
-                                if let Err(e) = local_csv_source::add_local_entry(
-                                    &root, &name_stem, rt, &devices, &abs_path, None, None,
-                                )
-                                .await
-                                {
-                                    log::warn!("[webui/upload] add_local_entry failed: {e:#}");
-                                } else {
-                                    log::info!(
-                                        "[webui/upload] registered {} as {:?} → {:?}",
-                                        name_stem,
-                                        rt,
-                                        abs_path
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!("[webui/upload] write SD failed: {e:#}");
-                            }
                         }
+                    };
+                    // 目标设备：上传时指定，否则所有已连接设备
+                    let targets: Vec<String> = if !devices.is_empty() {
+                        devices.clone()
                     } else {
-                        log::warn!("[webui/upload] SD 卡未挂载，上传无法保存");
+                        ble_devices
+                            .lock()
+                            .map(|g| {
+                                g.iter()
+                                    .filter(|d| d.connected)
+                                    .map(|d| d.address.clone())
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    };
+                    if targets.is_empty() {
+                        log::warn!("[webui/upload] 没有可安装的目标设备（无已连接设备）");
+                        return;
+                    }
+                    for addr in &targets {
+                        let result = match pkg.package_type {
+                            crate::package_format::PackageType::Watchface => {
+                                crate::install::install_watchface(addr, bytes.clone()).await
+                            }
+                            crate::package_format::PackageType::QuickApp => {
+                                crate::install::install_quick_app(addr, &pkg.name, bytes.clone())
+                                    .await
+                            }
+                        };
+                        match result {
+                            Ok(()) => {
+                                log::info!("[webui/upload] 已安装 {} 到 {}", pkg.name, addr)
+                            }
+                            Err(e) => log::error!(
+                                "[webui/upload] 安装 {} 到 {} 失败: {:#}",
+                                pkg.name,
+                                addr,
+                                e
+                            ),
+                        }
                     }
                 });
             }
@@ -715,7 +705,7 @@ fn guess_device_name_from_addr(addr: &str) -> Option<String> {
 /// 用 ESP-IDF FFI `esp_netif_get_ip_info` 读取 STA IP。
 /// 失败/未连接 返回 None，不做 panic。
 fn read_sta_ip_snapshot() -> Option<String> {
-    use esp_idf_sys::*;
+    use esp_idf_svc::sys::*;
     let ckey = std::ffi::CString::new("WIFI_STA_DEF").ok()?;
     let netif = unsafe { esp_netif_get_handle_from_ifkey(ckey.as_ptr()) };
     if netif.is_null() {

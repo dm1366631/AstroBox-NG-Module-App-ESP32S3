@@ -143,113 +143,14 @@ impl SdCard {
     ///   接管该脚的硬件功能）；CS 被用来创建本 SD 卡的 `SpiDeviceDriver`。
     ///
     /// 失败请不要 panic，直接 `bail!`，上层捕获。
-    pub fn mount(shared_spi_driver: &SpiDriver<'static>, pins: SdCardPins) -> Result<Self> {
-        // ---- 1. 构造 SPI Device (SD 卡私有)：20 MHz，SPI mode 0 ----
-        //
-        // 注：`SpiDeviceDriver::new` 第二个参数是 CS pin（类型是
-        // `Option<AnyIOPin>` 或 `Option<GpioX>`），直接传 `Some(pins.cs)`
-        // 即可。Gpio9 不会被重复 consume。
-        let _spi_dev = SpiDeviceDriver::new(
-            shared_spi_driver,
-            Some(pins.cs),
-            &SpiConfig::new()
-                .baudrate(20_000_000.into())
-                .data_mode(embedded_hal::spi::MODE_0),
-        )
-        .context("SD SpiDeviceDriver create failed")?;
-
-        // ---- 2. Fatfs + SdCardSpi + VFS 注册 ----
-        //
-        // esp-idf-svc 0.51 的 fatfs/sdmmc 封装按官方示例自己开一组 SPI
-        // 引脚（SdmmcSpiDriver 内部管理 SPI host）。我们在上面已经用
-        // `SpiDriver<'static>` + 独立 CS 为 LCD 初始化了同一组 SCLK/MOSI/
-        // MISO。从硬件视角看，两个驱动共享同一组 IO（SDMMC host 负责
-        // 发 SPI 时钟/数据，LCD 侧 CS 不选中时总线空闲即可）。若未来
-        // 观察到总线上有冲突（读卡/刷屏乱码），可把 SD 卡切换到 SPI3
-        // 或在这之间加互斥锁。
-        //
-        // 如果编译时提示缺失类型/方法，请对照 `esp-idf-svc 0.51` 文档
-        // `io::vfs::Fatfs` + `sdmmc::SdCard`。
-        // 运行期我们只关心能否成功对 "/sdcard" 执行
-        // `std::fs::metadata("/sdcard").is_ok()`。
-        let mount_result = mount_fatfs_through_sdmmc();
-        match mount_result {
-            Ok(()) => {}
-            Err(e) => {
-                log::warn!("SD card mount failed: {e:#}");
-                return Err(e.context("SD card mount failed; check wiring / card format"));
-            }
-        }
-
-        // ---- 3. 创建必要目录 ----
-        for dir in [DIR_LOGS, DIR_PACKAGES, DIR_CACHE] {
-            if let Err(e) = std::fs::create_dir_all(dir) {
-                // 已存在 (EEXIST) 非错误；其他错误 warn。
-                match e.kind() {
-                    std::io::ErrorKind::AlreadyExists => {}
-                    other => {
-                        log::warn!(
-                            "create_dir_all({dir}) failed ({other:?}); fs features may degrade"
-                        );
-                    }
-                }
-            }
-        }
-
-        let me = Self { mounted: true };
-        let free = me.free_bytes();
-        log::info!(
-            "Mounted /sdcard (FAT); free={} MiB ({free} bytes)",
-            free / 1024 / 1024
-        );
-        Ok(me)
+    pub fn mount(_shared_spi_driver: &SpiDriver<'static>, _pins: SdCardPins) -> Result<Self> {
+        // ble-web 构建（无 GUI、全 Web 管理）已禁用 SD 卡支持：
+        // esp-idf-svc 0.51 移除了 `io::vfs::Fatfs` / `sdmmc::SdCard` API，
+        // 而本固件的安装链路（Web 上传 → BLE 安装）不需要 SD 卡。
+        // 直接返回 Err，上层把 `sd` 降级为 `None`。
+        anyhow::bail!("SD card support disabled in ble-web build (no GUI, Web-only management)")
     }
 }
-
-// ===== esp-idf-svc Fatfs + SDMMC SPI 绑定 =====
-//
-// 由于 `esp-idf-svc 0.51` 在不同 build 的 API 略有差异，这里用
-// 一个独立函数把所有平台相关代码包起来。
-//
-// 思路：通过 `esp_idf_svc::io::vfs::Fatfs` + SDMMC host 构造。
-// 若某个具体符号缺失，用户可能需要改 `esp-idf-svc` 的 feature 或
-// 用 `embuild` 生成的 C 绑定直接调 `ff_diskio_sdspi_begin` 等。
-fn mount_fatfs_through_sdmmc() -> Result<()> {
-    use esp_idf_svc::{
-        io::vfs::Fatfs,
-        sdmmc::{SdCard, SdmmcHostConfiguration, SdmmcSpiDriver, SdmmcSpiSlotConfiguration},
-    };
-
-    // 获取默认 SPI 配置：我们已在 SdCard::mount 外层创建了 SPI2 总线，
-    // 但 esp-idf-svc 的 `SdmmcSpiSlotConfiguration` 需要"它自己
-    // 开一组 SPI 引脚"的用法。为避免双重占用，这里选择让 SDMMC
-    // 驱动直接管理自己的 SPI host（SPI2 上另一套 CS 独立），
-    // 而 LCD 侧通过不同 CS 共享同一组 SCLK/MOSI/MISO。
-    //
-    // SPI2 默认引脚：CLK=GPIO7, MOSI=GPIO6, MISO=GPIO8, CS=GPIO9。
-    let slot_cfg = SdmmcSpiSlotConfiguration {
-        host: SdmmcHostConfiguration::<esp_idf_svc::sdmmc::SpiHost>::default(),
-        clk: unsafe { esp_idf_svc::hal::gpio::Gpio7::new() },
-        mosi: unsafe { esp_idf_svc::hal::gpio::Gpio6::new() },
-        miso: unsafe { esp_idf_svc::hal::gpio::Gpio8::new() },
-        cs: unsafe { esp_idf_svc::hal::gpio::Gpio9::new() },
-    };
-    let sdmmc_driver =
-        SdmmcSpiDriver::new(slot_cfg).map_err(|e| anyhow!("SdmmcSpiDriver init: {e:?}"))?;
-    let card = SdCard::new(sdmmc_driver).map_err(|e| anyhow!("SdCard detect: {e:?}"))?;
-    let _mounted_fatfs = Fatfs::new_sdcard(SDCARD_ROOT, card, 0 /* max_files */)
-        .map_err(|e| anyhow!("Fatfs mount on {SDCARD_ROOT}: {e:?}"))?;
-
-    // mount 后 FATFS 会注册到 VFS；`_mounted_fatfs` 会在程序运行期
-    // 一直 live（我们 leak 它：因为要常驻）。可以把它放进全局
-    // `static` 避免 drop；这里使用静态 OnceLock 保存。
-    use std::sync::OnceLock;
-    static LEAKED_FATFS: OnceLock<Fatfs<SdCard<SdmmcSpiDriver>>> = OnceLock::new();
-    let _ = LEAKED_FATFS.set(_mounted_fatfs);
-
-    Ok(())
-}
-
 /// 确保某个目录存在（等价于 `mkdir -p`，非 FATFS 错误忽略）
 pub fn ensure_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     let p = path.as_ref();

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AstroBox ESP32-S3 · BLE 手环管理台</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #1a2130; --panel2: #222b3d; --line: #2e3a52;
+    --fg: #e6ebf5; --mut: #93a1b8; --acc: #4d9fff; --ok: #2ecc71; --warn: #f1c40f; --err: #e74c3c;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 "Segoe UI",system-ui,sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; background:linear-gradient(90deg,#131a2b,#1a2130); }
+  header h1 { font-size:18px; margin:0; }
+  header .tag { font-size:12px; color:var(--mut); }
+  .wrap { max-width:1080px; margin:0 auto; padding:20px 24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card h3 { margin:0 0 10px; font-size:14px; color:var(--mut); font-weight:600; }
+  .kv { display:flex; justify-content:space-between; padding:3px 0; }
+  .kv b { font-weight:600; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input, select, button { font:inherit; color:var(--fg); background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+  input:focus, select:focus { outline:2px solid var(--acc); }
+  button { cursor:pointer; transition:.15s; }
+  button:hover { filter:brightness(1.15); }
+  .btn-acc { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .btn-ok { background:var(--ok); border-color:var(--ok); color:#04260f; }
+  .btn-warn { background:var(--warn); border-color:var(--warn); color:#2a2100; }
+  .btn-ghost { background:transparent; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; font-size:12px; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .err { color:var(--err); }
+  .muted { color:var(--mut); }
+  .toast { position:fixed; bottom:20px; right:20px; background:#111; border:1px solid var(--line); border-radius:10px; padding:12px 16px; max-width:340px; display:none; z-index:99; }
+  .drop { border:2px dashed var(--line); border-radius:12px; padding:26px; text-align:center; color:var(--mut); transition:.15s; cursor:pointer; }
+  .drop.over { border-color:var(--acc); color:var(--acc); background:rgba(77,159,255,.06); }
+  #uploadProgress { display:none; margin-top:10px; }
+  progress { width:100%; height:10px; border-radius:6px; }
+  progress::-webkit-progress-bar { background:var(--panel2); border-radius:6px; }
+  progress::-webkit-progress-value { background:var(--acc); border-radius:6px; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:var(--panel2); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ AstroBox BLE 管理台</h1>
+  <span class="tag">快应用 / 表盘安装 · ABNG 协议栈 · ESP32-S3</span>
+</header>
+
+<div class="wrap">
+
+  <!-- 状态 -->
+  <div class="grid" id="statusCards" style="margin-bottom:16px">
+    <div class="card"><h3>固件</h3><div class="kv"><span class="muted">版本</span><b id="fwVer">-</b></div><div class="kv"><span class="muted">构建</span><b id="buildTime">-</b></div></div>
+    <div class="card"><h3>Wi-Fi</h3><div class="kv"><span class="muted">状态</span><b id="wifiState">-</b></div><div class="kv"><span class="muted">IP</span><b id="wifiIp">-</b></div></div>
+    <div class="card"><h3>BLE</h3><div class="kv"><span class="muted">已连接设备</span><b id="bleCount">-</b></div><div class="kv"><span class="muted">SD 卡</span><b id="sdState">-</b></div></div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+
+    <!-- 小米账号 -->
+    <div class="card">
+      <h3>小米账号（ABNG 鉴权）</h3>
+      <div id="miLogin" style="display:none">
+        <div class="row" style="margin-bottom:8px">
+          <input id="miUser" placeholder="小米账号 / 手机号" style="flex:1">
+        </div>
+        <div class="row">
+          <input id="miPass" type="password" placeholder="密码" style="flex:1">
+          <button class="btn-acc" onclick="miLogin()">登录</button>
+        </div>
+        <div class="muted" style="margin-top:8px;font-size:12px">使用小米账号登录获取 serviceToken，用于手环 BLE 鉴权。</div>
+      </div>
+      <div id="miLogged" style="display:none">
+        <div class="kv"><span class="muted">已登录</span><b id="miUserInfo">-</b></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn-warn" onclick="miLogout()">退出登录</button>
+          <button class="btn-ghost" onclick="miDevices()">获取小米设备列表</button>
+        </div>
+        <pre id="miDevOut" class="muted" style="white-space:pre-wrap;max-height:120px;overflow:auto;font-size:12px"></pre>
+      </div>
+    </div>
+
+    <!-- 上传安装 -->
+    <div class="card">
+      <h3>上传安装（.rpk 快应用 / .bin 表盘）</h3>
+      <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+        点击或拖拽 .rpk / .bin 文件到此处<br><span class="muted" style="font-size:12px">上传后自动识别类型并排队安装</span>
+      </div>
+      <input type="file" id="file" accept=".rpk,.bin,.zip" style="display:none">
+      <div class="row" style="margin-top:10px">
+        <select id="targetDevice"><option value="">所有已连接设备</option></select>
+      </div>
+      <div id="uploadProgress"><progress id="upBar" max="100" value="0"></progress><div class="muted" id="upText" style="font-size:12px"></div></div>
+      <div class="muted" style="margin-top:8px;font-size:12px">表盘 .bin、快应用 .rpk 均走 ABNG 小米协议 BLE 安装。</div>
+    </div>
+  </div>
+
+  <!-- 设备与已装列表 -->
+  <div style="margin-top:16px">
+    <div class="card">
+      <h3>BLE 设备</h3>
+      <table>
+        <thead><tr><th>地址</th><th>名称</th><th>型号</th><th>状态</th></tr></thead>
+        <tbody id="devBody"><tr><td colspan="4" class="muted">扫描中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr; margin-top:16px">
+    <div class="card">
+      <h3>已装快应用</h3>
+      <div id="qaList" class="muted">选择设备后加载</div>
+    </div>
+    <div class="card">
+      <h3>已装表盘</h3>
+      <div id="wfList" class="muted">选择设备后加载</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let selectedDev = '';
+
+function toast(msg, color) {
+  const t = $('toast');
+  t.textContent = msg; t.style.display = 'block'; t.style.borderColor = color || 'var(--line)';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4000);
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  let j = null; try { j = await r.json(); } catch(e) {}
+  if (!r.ok && !j) throw new Error('HTTP ' + r.status);
+  return { status: r.status, body: j };
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function refreshStatus() {
+  try {
+    const { body } = await api('/api/status');
+    $('fwVer').textContent = body.fw_version || '-';
+    $('buildTime').textContent = body.build_time || '-';
+    $('wifiState').textContent = body.wifi_connected ? '<span class="ok">● 已连接</span>' : '<span class="err">● 未连接</span>';
+    $('wifiState').innerHTML = body.wifi_connected ? '<span class="dot ok"></span>已连接' : '<span class="dot err"></span>未连接';
+    $('wifiIp').textContent = body.ip || '-';
+    $('bleCount').textContent = body.ble_connected_count ?? 0;
+    $('sdState').textContent = body.sd_mounted ? '已挂载' : '未挂载';
+  } catch(e) { toast('状态获取失败: ' + e.message, 'var(--err)'); }
+}
+
+async function refreshDevices() {
+  try {
+    const { body } = await api('/api/devices');
+    const devs = body.devices || [];
+    const sel = $('targetDevice');
+    const prev = selectedDev;
+    sel.innerHTML = '<option value="">所有已连接设备</option>';
+    const tbody = $('devBody');
+    if (!devs.length) { tbody.innerHTML = '<tr><td colspan="4" class="muted">未发现设备（请先让手环进入可配对状态）</td></tr>'; }
+    else {
+      tbody.innerHTML = devs.map(d => `
+        <tr>
+          <td>${esc(d.addr)}</td><td>${esc(d.name || '-')}</td><td>${esc(d.model || '-')}</td>
+          <td>${d.connected ? '<span class="dot ok"></span>已连接' : '<span class="dot warn"></span>未连接'}</td>
+        </tr>`).join('');
+      devs.forEach(d => {
+        if (d.addr) {
+          const o = document.createElement('option');
+          o.value = d.addr;
+          o.textContent = (d.name ? d.name + ' ' : '') + d.addr;
+          sel.appendChild(o);
+        }
+      });
+      if (prev) sel.value = prev;
+    }
+    selectedDev = sel.value;
+    refreshLists();
+  } catch(e) { toast('设备获取失败: ' + e.message, 'var(--err)'); }
+}
+
+async function refreshLists() {
+  const dev = selectedDev || '';
+  const qa = $('qaList'), wf = $('wfList');
+  const q = dev ? ('?addr=' + encodeURIComponent(dev)) : '';
+  try {
+    const a = await api('/api/device/list_qas' + q);
+    const b = await api('/api/device/list_wfs' + q);
+    const items = arr => (arr && arr.length) ? arr.map(x => `<div class="badge" style="margin:2px 4px 2px 0">${esc(x)}</div>`).join('') : '<span class="muted">（空）</span>';
+    qa.innerHTML = items(a.body.items); wf.innerHTML = items(b.body.items);
+  } catch(e) { /* 通道未启用时静默 */ }
+}
+
+async function miStatus() {
+  try {
+    const { body } = await api('/api/mi-account/status');
+    if (body.logged_in) {
+      $('miLogged').style.display = 'block'; $('miLogin').style.display = 'none';
+      $('miUserInfo').textContent = body.user || '-';
+    } else {
+      $('miLogged').style.display = 'none'; $('miLogin').style.display = 'block';
+    }
+  } catch(e) {}
+}
+async function miLogin() {
+  const user = $('miUser').value.trim(), password = $('miPass').value;
+  if (!user || !password) return toast('请输入账号和密码', 'var(--warn)');
+  const { status, body } = await api('/api/mi-account/login-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user, password})
+  });
+  if (status === 200) { toast('登录成功'); miStatus(); }
+  else toast('登录失败: ' + (body.error || status), 'var(--err)');
+}
+async function miLogout() {
+  await api('/api/mi-account/logout', {method:'POST'});
+  toast('已退出'); miStatus();
+}
+async function miDevices() {
+  const { body } = await api('/api/mi-account/devices');
+  $('miDevOut').textContent = JSON.stringify(body.devices ?? body, null, 2);
+}
+
+// 上传
+const drop = $('drop');
+['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]); });
+$('file').addEventListener('change', e => { if (e.target.files.length) doUpload(e.target.files[0]); });
+
+async function doUpload(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('restype', ''); // 后端按扩展名自动判定
+  if (selectedDev) fd.append('devices', selectedDev);
+  $('uploadProgress').style.display = 'block'; $('upBar').value = 0;
+  $('upText').textContent = '上传 ' + file.name + ' …';
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $('upBar').value = e.loaded / e.total * 100; };
+  xhr.onload = () => {
+    try { const j = JSON.parse(xhr.responseText);
+      if (xhr.status === 202) { $('upText').textContent = '✓ ' + (j.note || '已入队'); toast('安装已入队'); }
+      else { $('upText').textContent = (j.error || ('HTTP ' + xhr.status)); toast('上传失败: ' + (j.error || xhr.status), 'var(--err)'); }
+    } catch(e) { $('upText').textContent = '响应解析失败'; }
+    setTimeout(() => $('uploadProgress').style.display = 'none', 3000);
+    setTimeout(refreshLists, 4000);
+  };
+  xhr.onerror = () => { $('upText').textContent = '网络错误'; toast('网络错误', 'var(--err)'); };
+  xhr.send(fd);
+}
+
+$('targetDevice').addEventListener('change', e => { selectedDev = e.target.value; refreshLists(); });
+
+// 轮询
+refreshStatus(); refreshDevices(); miStatus();
+setInterval(refreshStatus, 5000);
+setInterval(refreshDevices, 8000);
+setInterval(miStatus, 15000);
+</script>
+</body>
+</html>

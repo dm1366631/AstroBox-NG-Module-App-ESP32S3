@@ -34,7 +34,7 @@ repo_net = ["csv", "serde", "serde_json", "url"]
 mi_account = ["serde", "serde_json", "md-5", "hmac", "sha1", "sha2", "base64"]
 # 步骤 6：AstroBox 插件运行时。默认关闭，避免影响出货固件编译尺寸/稳定性。
 # 开启后：SD 卡 `.abp` 可被列出并加载（Phase 1 为 stub runtime，不真正执行 wasm）。
-plugin_runtime = ["zip", "serde", "serde_json"]
+plugin_runtime = ["serde", "serde_json"]
 # 无屏用户的网页控制台：ESP32 内嵌 HTTPd + 编译期嵌入前端单页。
 # 依赖 serde/serde_json（repo_net 或 mi_account 或 plugin_runtime 任意一个已开就有），
 # 但显式开一次，保证独立使用也 OK。
@@ -82,7 +82,7 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"], opt
 # ============ 步骤 6：AstroBox 插件 .abp 包解包 ============
 # zip：解 `.abp`（标准 ZIP）。default-features=false 仅开 deflate（纯 Rust
 # miniz_oxide 后端），避开 bzip2/aes 的 C 依赖，确保 Xtensa 可交叉编译。
-zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
 embuild = "0.33"

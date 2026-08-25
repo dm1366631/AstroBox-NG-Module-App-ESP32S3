@@ -306,7 +306,7 @@ pub async fn install_from_repo(
     progress_tx: Option<mpsc::Sender<TransferProgress>>,
 ) -> anyhow::Result<()> {
     use anyhow::anyhow;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     // 1) 过滤三重保障（paid 再检查一次）
     if !item.paid.is_free() {
@@ -381,7 +381,7 @@ pub async fn install_from_repo(
             .map_err(|e| anyhow!("read cached package {}: {e:#}", p.display()))?
     } else {
         // 下载
-        let current = AtomicU64::new(0);
+        let current = AtomicU32::new(0);
         let total_arc = std::sync::Arc::new(total);
         if let Some(p) = &cache_path {
             // 方式 A：流式写文件 + 后续读文件
@@ -395,7 +395,7 @@ pub async fn install_from_repo(
                         Some(0) | None => 0.0,
                         Some(max) => (cur as f32 / max as f32).clamp(0.0, 1.0),
                     });
-                current.store(cur as u64, Ordering::Relaxed);
+                current.store(cur as u32, Ordering::Relaxed);
                 let tx = progress_tx.clone();
                 // 这里同步上下文，不 .await；直接 best-effort try_send
                 if let Some(tx) = tx {
@@ -424,7 +424,7 @@ pub async fn install_from_repo(
                         Some(0) | None => 0.0,
                         Some(max) => (cur as f32 / max as f32).clamp(0.0, 1.0),
                     });
-                current.store(cur as u64, Ordering::Relaxed);
+                current.store(cur as u32, Ordering::Relaxed);
                 if let Some(tx) = tx_for_cb.as_ref() {
                     let _ = tx.try_send(TransferProgress {
                         direction: TransferDirection::Send,

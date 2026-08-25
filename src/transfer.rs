@@ -48,33 +48,45 @@ pub async fn send_data_to_device(
     let addr_owned = addr.to_string();
     let (tx, rx) = oneshot::channel();
 
-    ecs::with_rt_mut(move |rt| {
+    // `with_device_mut` is a synchronous closure, so we can't await inside it.
+    // Extract the owner_id synchronously, then run the async transfer outside.
+    let owner_id: Option<String> = ecs::with_rt_mut(move |rt| {
         rt.with_device_mut(&addr_owned, |world, entity| {
             if world.get::<MassComponent>(entity).is_none() {
                 let _ = tx.send(Err(anyhow::anyhow!(
                     "MassComponent missing on device {}",
                     addr_owned
                 )));
-                return;
+                return None;
             }
-            let mut system = match world.get_mut::<MassSystem>(entity) {
-                Some(s) => s,
+            match world.get::<MassSystem>(entity) {
+                Some(s) => Some(s.owner_id.clone()),
                 None => {
                     let _ = tx.send(Err(anyhow::anyhow!(
                         "MassSystem missing on device {}",
                         addr_owned
                     )));
-                    return;
+                    None
                 }
-            };
-            let result = system
-                .send_file(data, data_type, |_cb: SendMassCallbackData| {})
-                .await;
-            let _ = tx.send(result.map(|_| ()));
-        });
+            }
+        })
+        .flatten()
     })
     .await;
 
+    let owner_id = match owner_id {
+        Some(id) => id,
+        None => return rx.await??,
+    };
+
+    let result = corelib::device::xiaomi::components::mass::send_file_for_owner(
+        owner_id,
+        data,
+        data_type,
+        |_cb: SendMassCallbackData| {},
+    )
+    .await;
+    let _ = tx.send(result.map(|_| ()));
     rx.await??;
     Ok(())
 }
@@ -92,32 +104,44 @@ where
     let (tx, rx) = oneshot::channel();
     let cb_arc: Arc<dyn Fn(SendMassCallbackData) + Send + Sync> = Arc::new(progress_cb);
 
-    ecs::with_rt_mut(move |rt| {
+    // Synchronous closure: extract owner_id, run async transfer outside.
+    let owner_id: Option<String> = ecs::with_rt_mut(move |rt| {
         rt.with_device_mut(&addr_owned, |world, entity| {
             if world.get::<MassComponent>(entity).is_none() {
                 let _ = tx.send(Err(anyhow::anyhow!(
                     "MassComponent missing on device {}",
                     addr_owned
                 )));
-                return;
+                return None;
             }
-            let mut system = match world.get_mut::<MassSystem>(entity) {
-                Some(s) => s,
+            match world.get::<MassSystem>(entity) {
+                Some(s) => Some(s.owner_id.clone()),
                 None => {
                     let _ = tx.send(Err(anyhow::anyhow!(
                         "MassSystem missing on device {}",
                         addr_owned
                     )));
-                    return;
+                    None
                 }
-            };
-            let cb = cb_arc.clone();
-            let result = system.send_file(data, data_type, move |d| cb(d)).await;
-            let _ = tx.send(result.map(|_| ()));
-        });
+            }
+        })
+        .flatten()
     })
     .await;
 
+    let owner_id = match owner_id {
+        Some(id) => id,
+        None => return rx.await??,
+    };
+
+    let result = corelib::device::xiaomi::components::mass::send_file_for_owner(
+        owner_id,
+        data,
+        data_type,
+        move |d| (cb_arc)(d),
+    )
+    .await;
+    let _ = tx.send(result.map(|_| ()));
     rx.await??;
     Ok(())
 }

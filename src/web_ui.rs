@@ -17,7 +17,7 @@
 //!   通过与 `main.rs` 之间建立的一个 `mpsc::Sender<UploadMsg>` 通道"登记到本地源"
 //!   的工作扔进 LocalSet 跑。handler 自身只负责读字节 + 发消息。
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context as _, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -165,7 +165,7 @@ pub enum UploadMsg {
 // =============== 对外句柄：给 main.rs 持有，保证 server 不 drop ===============
 
 pub struct WebServer {
-    _inner: esp_idf_svc::http::server::EspHttpServer,
+    _inner: esp_idf_svc::http::server::EspHttpServer<'static>,
 }
 
 // =============== main.rs 通过 fn start(…) 创建 ===============
@@ -211,7 +211,7 @@ pub enum PluginCmd {
 /// 启动 HTTP server（端口 80）。返回后 server 在 ESP-IDF 的内部 httpd task
 /// 里长期运行；`WebServer` drop 会 `httpd_stop` 并释放。
 pub fn start(ctx: Context) -> Result<WebServer> {
-    use embedded_svc::http::server::ResponseWrite;
+    use embedded_svc::io::Write;
     use esp_idf_svc::http::server::{Configuration, EspHttpServer, Method};
 
     let mut conf = Configuration::default();
@@ -296,7 +296,7 @@ pub fn start(ctx: Context) -> Result<WebServer> {
         let (sd_mounted, total, free) = match &ctx.sd_root {
             Some(r) => {
                 // std::fs 下 esp-idf fatfs 的 statvfs 通过 sys::statvfs
-                use esp_idf_sys::*;
+                use esp_idf_svc::sys::*;
                 let path_str = r.to_string_lossy().to_string();
                 let cpath = std::ffi::CString::new(path_str).unwrap();
                 let mut st = std::mem::MaybeUninit::<statvfs>::zeroed();
@@ -687,12 +687,12 @@ pub fn start(ctx: Context) -> Result<WebServer> {
 
 // =============== 辅助函数 ===============
 
-fn send_json<R: embedded_svc::http::server::Request + ?Sized>(
-    req: &mut R,
+fn send_json<C: embedded_svc::http::server::Connection>(
+    req: embedded_svc::http::server::Request<C>,
     status: u16,
     body: &[u8],
-) -> Result<(), R::Error> {
-    use embedded_svc::http::server::ResponseWrite;
+) -> Result<(), C::Error> {
+    use embedded_svc::io::Write;
     let mut resp = req.into_response(
         status,
         None,

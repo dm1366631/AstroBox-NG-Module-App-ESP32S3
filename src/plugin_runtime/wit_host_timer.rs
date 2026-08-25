@@ -10,12 +10,12 @@
 //! 取消：每个 timer 持一个 `AtomicBool` cancel flag，`clear_timer` 置位即可；
 //! 已 pending 的 `tokio::time::sleep` 会在到点后检查 flag 并跳过 cb。
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// 全局自增 timer id（从 1 开始，0 保留为"无效"）。
-static NEXT_TIMER_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_TIMER_ID: AtomicU32 = AtomicU32::new(1);
 
 /// 活跃 timer 注册表：`(id, cancel_flag)`。`clear_timer` 置 flag；到点后自动移除。
 /// 固件单进程，`Mutex` 足够；锁持有时间极短（仅 push/retain）。

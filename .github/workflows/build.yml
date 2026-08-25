@@ -36,7 +36,7 @@ jobs:
       - name: Clone dependency modules
         run: |
           cd $GITHUB_WORKSPACE/..
-          git clone https://github.com/AstralSightStudios/AstroBox-NG-Module-Core.git core
+          git clone https://github.com/dm1366631/AstroBox-NG-Module-Core.git core
           git clone https://github.com/AstralSightStudios/AstroBox-NG-Module-Pb.git pb
           git clone https://github.com/AstralSightStudios/AstroBox-NG-Module-Vivo-MsgPack.git vivo_msgpack
 
