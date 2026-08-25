@@ -274,7 +274,7 @@ impl Log for FileLogger {
         let level = record.level();
         let target = record.target();
         // 简化消息拼装；不追求完整 `Debug` 格式
-        let msg_str = format!("{record.args()}");
+        let msg_str = format!("{}", record.args());
         let line = format!("[{ts}] {level:<5} {target}: {msg_str}");
         match self.write_inner(&line) {
             Ok(()) => {
