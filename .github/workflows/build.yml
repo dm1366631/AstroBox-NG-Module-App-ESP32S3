@@ -75,12 +75,19 @@ jobs:
           . $HOME/export-esp.sh
           cd $GITHUB_WORKSPACE
           APP_ELF=target/xtensa-esp32s3-espidf/release/app_esp32s3
+          echo "--- esptool debug ---"
+          which -a esptool esptool.py 2>/dev/null || true
+          python3 -m esptool --version 2>&1 || true
+          find "$HOME" /opt -maxdepth 8 -name "esptool.py" 2>/dev/null | head -5
+          find "$HOME" /opt -maxdepth 8 -name "esptool" -type f 2>/dev/null | head -5
+          echo "--- end debug ---"
           if python3 -m esptool --version >/dev/null 2>&1; then
             ESPTOOL=$(python3 -c "import esptool,os;print(os.path.join(os.path.dirname(esptool.__file__),'esptool.py'))")
           elif command -v esptool.py >/dev/null 2>&1; then
             ESPTOOL=$(command -v esptool.py)
           else
             ESPTOOL=$(find "$HOME/.espup" "$HOME/.espressif" /opt -name "esptool.py" 2>/dev/null | head -1)
+            [ -z "$ESPTOOL" ] && ESPTOOL=$(find "$HOME" -maxdepth 8 -name "esptool.py" 2>/dev/null | head -1)
           fi
           echo "esptool.py: $ESPTOOL"
           # 1) ELF -> app.bin
