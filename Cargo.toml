@@ -17,24 +17,10 @@ opt-level = 1
 codegen-units = 1
 panic = "abort"
 
-opt-level = 0
-
 [profile.dev]
 opt-level = 1
 codegen-units = 1
 debug = true
-
-opt-level = 0
-codegen-units = 1
-
-opt-level = 0
-codegen-units = 1
-
-opt-level = 0
-codegen-units = 1
-
-opt-level = 0
-codegen-units = 1
 
 [features]
 default = ["sdcard", "repo_net", "mi_account"]
