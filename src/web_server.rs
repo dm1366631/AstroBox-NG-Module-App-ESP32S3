@@ -3,7 +3,7 @@
 //! 提供 REST API + 简单的 HTML 管理页面。
 //! 安装接口用原始字节上传（application/octet-stream），避免 multipart 解析复杂度。
 
-use crate::abp_package::{AbpPackage, PackageType};
+use crate::package_format::{parse_package, PackageType};
 use crate::package_manager::{InstalledPackage, PackageManager};
 use embedded_svc::io::{Read as _, Write as _};
 use esp_idf_svc::http::server::{Configuration, EspHttpServer, Method};
@@ -60,11 +60,11 @@ const ADMIN_HTML: &str = r#"<!DOCTYPE html>
 </div>
 
 <div class="card">
-  <h2>安装 .abp 包</h2>
+  <h2>安装包（.rpk / .bin）</h2>
   <div class="upload-area" id="upload-area">
-    <strong>点击选择或拖拽 .abp 文件到此处</strong>
-    <p>支持快应用和表盘包（ZIP 格式，含 manifest.json）</p>
-    <input type="file" id="file-input" accept=".abp,.zip">
+    <strong>点击选择或拖拽 .rpk / .bin 文件到此处</strong>
+    <p>.rpk 快应用包（ZIP 含 manifest.json）；.bin 表盘/资源文件</p>
+    <input type="file" id="file-input" accept=".rpk,.bin,.zip">
   </div>
   <button class="btn" id="install-btn" disabled>安装</button>
 </div>
@@ -115,12 +115,12 @@ installBtn.addEventListener('click', async () => {
   installBtn.textContent = '安装中...';
   try {
     const bytes = await selectedFile.arrayBuffer();
-    const resp = await fetch('/api/install', { method: 'POST', body: bytes, headers: { 'Content-Type': 'application/octet-stream' } });
+    const resp = await fetch('/api/install', { method: 'POST', body: bytes, headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': selectedFile.name } });
     const data = await resp.json();
     if (resp.ok) {
       showMessage('安装成功: ' + data.name + ' v' + data.version, 'success');
       selectedFile = null;
-      uploadArea.querySelector('strong').textContent = '点击选择或拖拽 .abp 文件到此处';
+      uploadArea.querySelector('strong').textContent = '点击选择或拖拽 .rpk / .bin 文件到此处';
       loadPackages();
     } else {
       showMessage('安装失败: ' + (data.error || resp.statusText), 'error');
@@ -245,8 +245,12 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
     })?;
 
     let pm_install = pkg_manager.clone();
-    // POST /api/install — body 是 .abp 原始字节
+    // POST /api/install — body 是 .rpk / .bin 原始字节；文件名走 X-Filename 头
     server.fn_handler("/api/install", Method::Post, move |mut req| -> Result<(), std::io::Error> {
+        let file_name = req
+            .header("X-Filename")
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "upload.bin".to_string());
         // 读取请求体
         let content_len = req
             .header("Content-Length")
@@ -290,7 +294,7 @@ pub fn start_server(pkg_manager: PackageManager) -> Result<EspHttpServer<'static
             );
         }
 
-        match AbpPackage::from_bytes(&buf) {
+        match parse_package(&file_name, &buf) {
             Ok(pkg) => match pm_install.install(pkg) {
                 Ok(info) => send_json(req, 200, &info),
                 Err(e) => send_json(req, 500, &ErrorResponse { error: e }),

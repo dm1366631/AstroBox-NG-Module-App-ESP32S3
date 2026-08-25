@@ -3,7 +3,7 @@
 //! 功能：ESP32-S3 init + SPI2 + ST7789 LCD + WiFi + 快应用/表盘管理 Web 控制台。
 //! 修改 src/wifi.rs 里的 WIFI_SSID / WIFI_PASS 为你的路由器凭据。
 
-mod abp_package;
+mod package_format;
 mod package_manager;
 mod web_server;
 mod wifi;
@@ -180,7 +180,7 @@ where
     Text::new("Open IP in browser", Point::new(8, 115), info_style)
         .draw(display)
         .unwrap();
-    Text::new("to install .abp files", Point::new(8, 130), info_style)
+    Text::new("to install .rpk/.bin", Point::new(8, 130), info_style)
         .draw(display)
         .unwrap();
 }

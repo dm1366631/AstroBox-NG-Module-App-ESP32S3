@@ -3,7 +3,7 @@
 //! 提供安装、卸载、列表、查询功能。用 `Arc<Mutex<>>` 包装，
 //! 可安全地在 HTTP 服务器线程中访问。
 
-use crate::abp_package::{AbpPackage, PackageType};
+use crate::package_format::{PackageData, PackageType};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -18,15 +18,14 @@ pub struct InstalledPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub installed_at: u64,
-    pub has_icon: bool,
-    pub has_wasm: bool,
+    pub size: usize,
 }
 
 /// 内部存储的完整包信息。
 struct StoredPackage {
     info: InstalledPackage,
     #[allow(dead_code)]
-    raw: AbpPackage,
+    raw: PackageData,
 }
 
 /// 包管理器。
@@ -49,18 +48,17 @@ impl PackageManager {
     }
 
     /// 安装一个包。如果已存在相同 ID，覆盖安装。
-    pub fn install(&self, pkg: AbpPackage) -> Result<InstalledPackage, String> {
+    pub fn install(&self, pkg: PackageData) -> Result<InstalledPackage, String> {
         let now = current_timestamp_secs();
         let info = InstalledPackage {
             id: pkg.id.clone(),
-            name: pkg.manifest.name.clone(),
-            version: pkg.manifest.version.clone(),
+            name: pkg.name.clone(),
+            version: pkg.version.clone(),
             package_type: pkg.package_type.as_str().to_string(),
-            description: pkg.manifest.description.clone(),
-            author: pkg.manifest.author.clone(),
+            description: pkg.description.clone(),
+            author: pkg.author.clone(),
             installed_at: now,
-            has_icon: pkg.icon_bytes.is_some(),
-            has_wasm: pkg.wasm_bytes.is_some(),
+            size: pkg.raw_len,
         };
 
         let stored = StoredPackage {
