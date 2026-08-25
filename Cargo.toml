@@ -17,6 +17,11 @@ opt-level = 1
 codegen-units = 1
 panic = "abort"
 
+# bevy_reflect (via corelib's bevy_ecs) crashes the Xtensa LLVM backend
+# with PCREL_WRAPPER on float constant pools at opt-level >= 1.
+[profile.release.package.bevy_reflect]
+opt-level = 0
+
 [profile.dev]
 opt-level = 1
 codegen-units = 1
