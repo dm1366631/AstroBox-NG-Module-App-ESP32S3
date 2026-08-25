@@ -70,9 +70,32 @@ jobs:
           cd $GITHUB_WORKSPACE
           cargo build --release --features webui
 
+      - name: Package firmware binaries (esptool elf2image + merge)
+        run: |
+          . $HOME/export-esp.sh
+          cd $GITHUB_WORKSPACE
+          APP_ELF=target/xtensa-esp32s3-espidf/release/app_esp32s3
+          if python3 -c "import esptool" 2>/dev/null; then ESPTOOL="python3 -m esptool"; else ESPTOOL=$(find ~/.espressif -name "esptool.py" | head -1); fi
+          echo "esptool: $ESPTOOL"
+          # 1) ELF -> app.bin
+          python3 $ESPTOOL --chip esp32s3 elf2image --flash_mode dio --flash_size 4MB -o app.bin "$APP_ELF"
+          # 2) 找 bootloader / partition-table 并合并成单个 firmware.bin
+          BL=$(find target -name "bootloader.bin" | head -1)
+          PT=$(find target -name "partition-table.bin" | head -1)
+          echo "BL=$BL PT=$PT"
+          if [ -n "$BL" ] && [ -n "$PT" ]; then
+            python3 $ESPTOOL --chip esp32s3 merge_bin -o firmware.bin 0x0 "$BL" 0x8000 "$PT" 0x10000 app.bin
+          else
+            cp app.bin firmware.bin
+          fi
+          ls -la firmware.bin app.bin
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: esp32s3-firmware-ble-web
-          path: target/xtensa-esp32s3-espidf/release/app_esp32s3
+          path: |
+            target/xtensa-esp32s3-espidf/release/app_esp32s3
+            firmware.bin
+            app.bin
           retention-days: 30
