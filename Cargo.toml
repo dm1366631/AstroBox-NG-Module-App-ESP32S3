@@ -68,11 +68,6 @@ tokio = { version = "1", default-features = false, features = [
 ] }
 
 corelib = { path = "../core" }
-__SKIP_SLINT__
-    "std",
-    "renderer-software",
-    "compat-1-2"
-] }
 libc = "0.2"
 # Disable simd feature on tiny-skia to avoid Xtensa LLVM backend crash
 # (PCREL_WRAPPER TargetConstantPool cannot be selected)
