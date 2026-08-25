@@ -22,6 +22,11 @@ panic = "abort"
 [profile.release.package.bevy_reflect]
 opt-level = 0
 
+# zip 0.6.6 (corelib dep) string constant pools also crash the Xtensa LLVM
+# backend at opt-level >= 1 (PCREL_WRAPPER). This applies to both zip versions.
+[profile.release.package.zip]
+opt-level = 0
+
 [profile.dev]
 opt-level = 1
 codegen-units = 1
