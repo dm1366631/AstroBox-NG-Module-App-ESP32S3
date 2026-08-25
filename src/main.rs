@@ -160,23 +160,11 @@ async fn run_app() -> anyhow::Result<()> {
     let shared_spi: SpiDriver<'static> = sdcard::new_spi2_bus_driver(spi2, gpio7, gpio6, gpio8)?;
 
     // ===== 5. 尝试挂载 SD 卡（CS=GPIO9）；失败降级（sd=None，只打串口日志） =====
-    let (maybe_sd, sd_root): (Option<sdcard::SdCard>, Option<&'static Path>) =
-        match sdcard::SdCard::mount(
-            &shared_spi,
-            sdcard::SdCardPins {
-                miso: gpio8,
-                cs: gpio9,
-            },
-        ) {
-            Ok(sd) => {
-                let root: &'static Path = Path::new(sdcard::SDCARD_ROOT);
-                (Some(sd), Some(root))
-            }
-            Err(e) => {
-                log::warn!("SD 卡未挂载，相关功能降级（SD 日志 / 本地安装 / 缓存关闭）: {e:#}");
-                (None, None)
-            }
-        };
+    // ble-web 构建已禁用 SD 卡（esp-idf-svc 0.51 移除 sdmmc API），直接降级为 None。
+    let (maybe_sd, sd_root): (Option<sdcard::SdCard>, Option<&'static Path>) = (None, None);
+    let _ = &shared_spi;
+    let _ = gpio8;
+    let _ = gpio9;
 
     // ===== 6. 安装日志后端（串口 + SD 滚动文件；SD 挂失败时仅串口） =====
     if let Err(e) = logging::install_combined_logger(sd_root, LevelFilter::Debug) {
@@ -241,15 +229,15 @@ async fn run_app() -> anyhow::Result<()> {
     let sd_root_opt: Option<&'static Path> = { shared_state.borrow().sd_root };
     // ===== 14.1 Web UI 通道 + 共享 Arc 快照（feature=webui 时启用） =====
     #[cfg(feature = "webui")]
-    let webui_install_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::InstallRequest>>;
+    let mut webui_install_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::InstallRequest>>;
     #[cfg(feature = "webui")]
-    let webui_upload_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::UploadMsg>>;
+    let mut webui_upload_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::UploadMsg>>;
     #[cfg(feature = "webui")]
-    let webui_mi_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::MiCmd>>;
+    let mut webui_mi_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::MiCmd>>;
     #[cfg(feature = "webui")]
-    let webui_plugins_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::PluginCmd>>;
+    let mut webui_plugins_rx: Option<tokio::sync::mpsc::UnboundedReceiver<web_ui::PluginCmd>>;
     #[cfg(feature = "webui")]
-    let webui_unload_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>;
+    let mut webui_unload_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>;
     #[cfg(feature = "webui")]
     {
         use std::sync::{Arc, Mutex};
@@ -321,7 +309,7 @@ async fn run_app() -> anyhow::Result<()> {
         let sd_root_pb: Option<std::path::PathBuf> = sd_root_opt.map(|p| p.to_path_buf());
         let ctx = web_ui::Context {
             sd_root: sd_root_pb,
-            ble_devices,
+            ble_devices: ble_devices.clone(),
             wifi_info,
             upload_tx: Arc::new(Mutex::new(Some(upload_tx))),
             install_tx: Arc::new(Mutex::new(Some(install_tx))),
