@@ -71,7 +71,7 @@ pub struct FirmwareHostCtx;
 impl HostCtx for FirmwareHostCtx {
     fn dialog_show_info(&mut self, content: &str) {
         let line = format!("[plugin] {content}");
-        crate::gui::slint_ui::set_install_progress_text(line.clone());
+        log::info!("{line}");
         log::info!("[plugin_host] dialog.show-info: {line}");
     }
 

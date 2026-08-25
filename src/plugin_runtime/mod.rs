@@ -88,7 +88,7 @@ pub async fn load(path: &Path) -> Result<String> {
 
     // 构造 host ctx：dialog.show-info 直接写 slint 顶部进度文本
     // （Phase 1 stub 在 LocalSet 单线程上同步执行，可直接调 slint setter）。
-    crate::gui::slint_ui::set_install_progress_text(format!("加载插件 {} v{}…", name, version));
+    log::info!("加载插件 {} v{}…", name, version);
     let mut host = FirmwareHostCtx;
 
     backend.call_on_load(&handle, &mut host)?;

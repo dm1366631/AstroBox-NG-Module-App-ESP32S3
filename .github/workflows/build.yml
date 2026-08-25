@@ -2,7 +2,7 @@ name: Build ESP32-S3 Firmware
 
 on:
   push:
-    branches: [main]
+    branches: [main, ble-web]
   workflow_dispatch:
 
 env:
@@ -70,11 +70,11 @@ jobs:
         run: |
           . $HOME/export-esp.sh
           cd $GITHUB_WORKSPACE
-          cargo build --release
+          cargo build --release --features webui
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: esp32s3-firmware
+          name: esp32s3-firmware-ble-web
           path: target/xtensa-esp32s3-espidf/release/app_esp32s3
           retention-days: 30

@@ -17,8 +17,6 @@ opt-level = 1
 codegen-units = 1
 panic = "abort"
 
-# Xtensa LLVM backend crashes on tiny-skia with size optimization.
-[profile.release.package.tiny-skia]
 opt-level = 0
 
 [profile.dev]
@@ -26,19 +24,15 @@ opt-level = 1
 codegen-units = 1
 debug = true
 
-[profile.dev.package.image]
 opt-level = 0
 codegen-units = 1
 
-[profile.dev.package.resvg]
 opt-level = 0
 codegen-units = 1
 
-[profile.release.package.image]
 opt-level = 0
 codegen-units = 1
 
-[profile.release.package.resvg]
 opt-level = 0
 codegen-units = 1
 
@@ -63,9 +57,6 @@ anyhow = "1.0.99"
 futures-lite = "2.6.1"
 esp-idf-svc = { version = "0.51" }
 esp32-nimble = "0.11.1"
-mipidsi = "0.9.0"
-display-interface-spi = "0.5.0"
-cst816s = "1.0.1"
 tokio = { version = "1", default-features = false, features = [
     "rt",
     "rt-multi-thread",
@@ -77,8 +68,7 @@ tokio = { version = "1", default-features = false, features = [
 ] }
 
 corelib = { path = "../core" }
-embedded-graphics-core = "0.4"
-slint = { version = "1.17.1", default-features = false, features = [
+__SKIP_SLINT__
     "std",
     "renderer-software",
     "compat-1-2"
@@ -86,7 +76,6 @@ slint = { version = "1.17.1", default-features = false, features = [
 libc = "0.2"
 # Disable simd feature on tiny-skia to avoid Xtensa LLVM backend crash
 # (PCREL_WRAPPER TargetConstantPool cannot be selected)
-tiny-skia = { version = "0.12", default-features = false, features = ["std", "png-format"] }
 
 # ============ 新增：SD 卡 / HTTP / 仓库索引 / 日志 依赖 ============
 embedded-svc = { version = "0.27", default-features = false, optional = true }
@@ -111,4 +100,3 @@ zip = { version = "2", default-features = false, features = ["deflate"], optiona
 
 [build-dependencies]
 embuild = "0.33"
-slint-build = "1.17.1"

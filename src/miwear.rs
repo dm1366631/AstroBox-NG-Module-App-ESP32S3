@@ -85,9 +85,7 @@ pub async fn connect_with_retry() -> anyhow::Result<()> {
 
         if found.is_empty() {
             log::warn!("No supported devices found");
-            crate::gui::slint_ui::set_device_connected(false);
-            crate::gui::slint_ui::set_connected_device_count(0);
-            tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
+                                    tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
             continue;
         }
 
@@ -124,9 +122,8 @@ pub async fn connect_with_retry() -> anyhow::Result<()> {
         }
 
         let count = sessions.len();
-        crate::gui::slint_ui::set_device_connected(count > 0);
-        crate::gui::slint_ui::set_connected_device_count(count);
-
+        log::info!("device connected: {count}");
+        
         if sessions.is_empty() {
             log::warn!("All connection attempts failed");
             tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
@@ -162,9 +159,8 @@ pub async fn connect_with_retry() -> anyhow::Result<()> {
                     remaining
                 );
 
-                crate::gui::slint_ui::set_connected_device_count(remaining);
-                crate::gui::slint_ui::set_device_connected(remaining > 0);
-
+                log::info!("connected devices remaining: {remaining}");
+                
                 tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
 
                 info!(
@@ -198,9 +194,8 @@ pub async fn connect_with_retry() -> anyhow::Result<()> {
                     }
                 }
 
-                crate::gui::slint_ui::set_connected_device_count(sessions.len());
-                crate::gui::slint_ui::set_device_connected(!sessions.is_empty());
-            }
+                log::info!("connected sessions: {}", sessions.len());
+                            }
 
             // Drain subsequent queued disconnects from the same scan cycle so
             // we don't rescan just to wait again.

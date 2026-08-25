@@ -35,7 +35,6 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod allocator;
-pub mod gui;
 pub mod install;
 pub mod local_packages;
 pub mod logging;
@@ -49,7 +48,6 @@ pub mod plugin_runtime;
 pub mod repo;
 pub mod sdcard;
 pub mod statlogger;
-pub mod touch;
 pub mod transfer;
 /// 无屏用户网页控制台：`#[cfg(feature = "webui")]` 开关，出货关闭零额外空间。
 /// 打开后 ESP32 端口 80 起 HTTP server，编译期嵌入前端单页。
@@ -63,10 +61,6 @@ const WIFI_INIT_RETRY_DELAY: Duration = Duration::from_secs(5);
 const WIFI_INIT_MAX_RETRIES: u32 = 5;
 const OTA_CHECK_INTERVAL: Duration = Duration::from_secs(3600);
 const ECS_STACK_SIZE: usize = 32 * 1024;
-const TARGET_FPS: u64 = 30;
-const UI_BATTERY_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
-/// 资源面板每页显示的行数（和 app.slint 中 ListRow × 5 一致）
-const LIST_PAGE_SIZE: usize = 5;
 
 // ===== Web UI 共享静态：Wi-Fi 连接状态 + STA IP =====
 // （不走 NVS 接口，直接用 Atomic 由 wifi_reconnect_watchdog 周期刷新）
@@ -115,10 +109,6 @@ struct AppSharedState {
 
 async fn run_app() -> anyhow::Result<()> {
     nvs_config::ensure_nvs_initialized();
-
-    // ===== 0. 资源 UI 事件 channel：先初始化，后续监听任务 consume rx =====
-    let resource_ui_rx = gui::slint_ui::init_resource_ui_event_channel()
-        .ok_or_else(|| anyhow!("resource ui event channel already taken"))?;
 
     // ===== 1. 外设解包 =====
     let Peripherals {
@@ -211,10 +201,6 @@ async fn run_app() -> anyhow::Result<()> {
 
     // ===== 8. ECS + UI 初始化 =====
     corelib::ecs::init_runtime_default_with_stack(ECS_STACK_SIZE);
-    gui::slint_ui::set_device_connected(false);
-    gui::slint_ui::set_list_items(Default::default());
-    gui::slint_ui::set_list_page(0, 0);
-    gui::slint_ui::set_install_progress_text(String::new());
 
     // ===== 9. 周期性：堆统计 / 网络计费 =====
     tokio::task::spawn_local(async {
@@ -225,78 +211,6 @@ async fn run_app() -> anyhow::Result<()> {
             log_network_meter().await;
         }
     });
-
-    // ===== 10. UI 电池 / 充电 / 网速刷新 =====
-    tokio::task::spawn_local(async {
-        let mut ticker = tokio::time::interval(Duration::from_secs(1));
-        let mut last_battery_refresh = std::time::Instant::now() - UI_BATTERY_REFRESH_INTERVAL;
-        let mut current_device_id = String::new();
-        let mut cached_battery_percent = 0i32;
-        let mut cached_charge_text = String::from("2天前充电");
-
-        loop {
-            ticker.tick().await;
-
-            let Some(snapshot) = read_first_device_snapshot().await else {
-                current_device_id.clear();
-                cached_battery_percent = 0;
-                cached_charge_text = String::from("2天前充电");
-                gui::slint_ui::set_device_status(gui::slint_ui::DeviceStatusUi {
-                    device_name: String::new(),
-                    battery_percent: cached_battery_percent,
-                    charge_text: cached_charge_text.clone(),
-                    net_up_text: "0 byte/s ↑".to_string(),
-                    net_down_text: "0 byte/s ↓".to_string(),
-                });
-                continue;
-            };
-
-            let need_refresh_battery = current_device_id != snapshot.device_id
-                || last_battery_refresh.elapsed() >= UI_BATTERY_REFRESH_INTERVAL;
-            if need_refresh_battery {
-                if let Some((battery_percent, charge_text)) =
-                    read_device_battery_status(&snapshot.device_id).await
-                {
-                    cached_battery_percent = battery_percent.clamp(0, 100);
-                    cached_charge_text = charge_text;
-                }
-                last_battery_refresh = std::time::Instant::now();
-                current_device_id = snapshot.device_id.clone();
-            }
-
-            gui::slint_ui::set_device_status(gui::slint_ui::DeviceStatusUi {
-                device_name: snapshot.device_name,
-                battery_percent: cached_battery_percent,
-                charge_text: cached_charge_text.clone(),
-                net_up_text: format_speed_text(snapshot.write_bps, "↑"),
-                net_down_text: format_speed_text(snapshot.read_bps, "↓"),
-            });
-        }
-    });
-
-    // ===== 11. LCD（共享 SPI2 + LCD CS=GPIO5） =====
-    let (mut display, mut backlight) = gui::display::init_display_st7789(
-        &shared_spi,
-        ledc,
-        gui::display::DisplayPins {
-            backlight: gpio2,
-            rst: gpio3,
-            dc: gpio4,
-            cs: gpio5,
-        },
-    )?;
-    let _ = &mut backlight;
-
-    // ===== 12. Touch =====
-    touch::spawn_touch_task(
-        i2c0,
-        touch::TouchPins {
-            sda: gpio18,
-            scl: gpio16,
-            interrupt: gpio1,
-            reset: gpio0,
-        },
-    )?;
 
     // ===== 13. MiWear BLE =====
     tokio::task::spawn_local(async {
@@ -502,13 +416,7 @@ async fn run_app() -> anyhow::Result<()> {
                                 .await
                                 {
                                     log::warn!("[webui/upload] add_local_entry failed: {e:#}");
-                                    gui::slint_ui::set_install_progress_text(format!(
-                                        "上传登记失败：{e}"
-                                    ));
                                 } else {
-                                    gui::slint_ui::set_install_progress_text(format!(
-                                        "✔ 已登记本地源：{name_stem}"
-                                    ));
                                     log::info!(
                                         "[webui/upload] registered {} as {:?} → {:?}",
                                         name_stem,
@@ -519,13 +427,10 @@ async fn run_app() -> anyhow::Result<()> {
                             }
                             Err(e) => {
                                 log::warn!("[webui/upload] write SD failed: {e:#}");
-                                gui::slint_ui::set_install_progress_text(format!("SD 写失败：{e}"));
                             }
                         }
                     } else {
-                        gui::slint_ui::set_install_progress_text(
-                            "SD 卡未挂载，上传无法保存".to_string(),
-                        );
+                        log::warn!("[webui/upload] SD 卡未挂载，上传无法保存");
                     }
                 });
             }
@@ -619,7 +524,7 @@ async fn run_app() -> anyhow::Result<()> {
         // 5) 让 UI 顶部提示 IP（有屏也显示，便于一起抄）
         if let Ok(ip) = nvs_config_wifi_sta_ip() {
             if !ip.is_empty() {
-                gui::slint_ui::set_install_progress_text(format!("无屏控制台：http://{ip}/"));
+                log::info!("Web 控制台：http://{ip}/");
             }
         }
     }
@@ -647,421 +552,14 @@ async fn run_app() -> anyhow::Result<()> {
                     devices
                 );
                 last_count = devices.len();
-                gui::slint_ui::set_connected_device_count(devices.len());
-                gui::slint_ui::set_device_connected(!devices.is_empty());
             }
         }
     });
-
-    // ===== 15. 资源面板事件监听器（tab/分页/安装） =====
-    {
-        let shared_state_clone = shared_state.clone();
-        tokio::task::spawn_local(async move {
-            resource_panel_event_loop(resource_ui_rx, shared_state_clone).await;
-        });
-    }
-
-    // ===== 16. Slint render loop（阻塞点） =====
-    tokio::task::spawn_local(async move {
-        let frame_interval = Duration::from_nanos(1_000_000_000 / TARGET_FPS);
-        loop {
-            let frame_start = std::time::Instant::now();
-            if let Err(err) = gui::slint_ui::render_hello_world(&mut display) {
-                log::error!("render loop exited: {err:?}");
-                break;
-            }
-
-            let elapsed = frame_start.elapsed();
-            if elapsed < frame_interval {
-                tokio::time::sleep(frame_interval - elapsed).await;
-            } else {
-                tokio::time::sleep(Duration::from_millis(2)).await;
-            }
-        }
-    })
-    .await?;
 
     Ok(())
 }
 
 // =====================================================================
-// 资源面板事件处理循环
-// =====================================================================
-
-/// 资源面板当前缓存的条目来源（本地 / AstroBox 官方源）。
-/// 每种来源都有 `Vec<ListEntry>`，再按 `page` 切 5 行。
-///
-/// 合规注：原先曾有 Tab=2「米坛源」，因 BandBBS 服务条款
-/// 禁止未授权自动抓取，已从主仓库移除（包括 UI Tab、Rust
-/// 分支和 `RepoSource::BandBBS` 枚举）。
-#[derive(Clone, Debug)]
-enum ListEntry {
-    Local(local_packages::LocalPackage),
-    Repo(repo::RepoItem),
-}
-
-impl ListEntry {
-    fn display_line(&self) -> String {
-        match self {
-            ListEntry::Local(l) => {
-                let tag = match l.r#type {
-                    local_packages::LocalType::QuickApp => "[快应用]",
-                    local_packages::LocalType::Watchface => "[表盘]",
-                    local_packages::LocalType::ResourceBin => "[资源]",
-                    local_packages::LocalType::Plugin => "[插件]",
-                };
-                let size_kb = l.size / 1024;
-                format!("{tag} {} ({} KB)", truncate(&l.name, 18), size_kb)
-            }
-            ListEntry::Repo(r) => {
-                let tag = match r.restype {
-                    repo::RepoType::QuickApp => "[快应用]",
-                    repo::RepoType::Watchface => "[表盘]",
-                };
-                format!("{tag}[AB] {}", truncate(&r.name, 18))
-            }
-        }
-    }
-}
-
-fn truncate(s: &str, max_chars: usize) -> String {
-    // 按字符（而不是字节）截断，避免中文拆半。
-    let count = s.chars().count();
-    if count <= max_chars {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
-        out.push('…');
-        out
-    }
-}
-
-async fn resource_panel_event_loop(
-    mut rx: tokio::sync::mpsc::Receiver<gui::slint_ui::ResourceUiEvent>,
-    shared: std::rc::Rc<std::cell::RefCell<AppSharedState>>,
-) {
-    use gui::slint_ui::ResourceUiEvent::*;
-
-    // 可见性（主侧维护，避免 Slint 线程自己切换）
-    let mut visible = false;
-    // 当前 tab：0=本地(SD), 1=AstroBox（曾经 2=米坛，合规移除）
-    let mut tab: i32 = 0;
-    // 每页 index
-    let mut page: i32 = 0;
-    // 缓存：每 tab 一份 Vec<ListEntry> + 是否已加载（防止每次翻页都重查）
-    let mut cache_local: Vec<ListEntry> = Vec::new();
-    let mut cache_astro: Vec<ListEntry> = Vec::new();
-    let mut local_loaded = false;
-    let mut astro_loaded = false;
-
-    loop {
-        let event = match rx.recv().await {
-            Some(e) => e,
-            None => {
-                log::debug!("[ResourcePanel] event channel closed; exit loop");
-                return;
-            }
-        };
-        match event {
-            SettingsLongPressed => {
-                visible = !visible;
-                gui::slint_ui::set_resource_panel_visible(visible);
-                if visible {
-                    // 打开面板时：先刷新当前 tab 的数据（强制 re-scan）
-                    refresh_tab_cache(
-                        tab,
-                        &shared,
-                        &mut cache_local,
-                        &mut cache_astro,
-                        &mut local_loaded,
-                        &mut astro_loaded,
-                        true,
-                    )
-                    .await;
-                    page = 0;
-                    render_page_from_cache(tab, page, &cache_local, &cache_astro);
-                }
-            }
-            ClosePanel => {
-                visible = false;
-                gui::slint_ui::set_resource_panel_visible(false);
-                // 清空进度提示，避免下次打开残留
-                gui::slint_ui::set_install_progress_text(String::new());
-            }
-            SourceSwitched(new_tab) => {
-                // Tab 现在只有 0 与 1；其他值直接忽略（避免未来 UI 残留触发越界）
-                if !(0..=1).contains(&new_tab) {
-                    log::warn!(
-                        "[ResourcePanel] SourceSwitched({new_tab}) ignored; only tabs 0/1 are valid"
-                    );
-                    continue;
-                }
-                tab = new_tab;
-                page = 0;
-                gui::slint_ui::set_repo_source_tab(tab);
-                refresh_tab_cache(
-                    tab,
-                    &shared,
-                    &mut cache_local,
-                    &mut cache_astro,
-                    &mut local_loaded,
-                    &mut astro_loaded,
-                    false,
-                )
-                .await;
-                render_page_from_cache(tab, page, &cache_local, &cache_astro);
-            }
-            PrevPage => {
-                if page > 0 {
-                    page -= 1;
-                }
-                render_page_from_cache(tab, page, &cache_local, &cache_astro);
-            }
-            NextPage => {
-                let total = cache_len(tab, &cache_local, &cache_astro);
-                let max_page = if total == 0 {
-                    0
-                } else {
-                    ((total - 1) / LIST_PAGE_SIZE) as i32
-                };
-                if page < max_page {
-                    page += 1;
-                }
-                render_page_from_cache(tab, page, &cache_local, &cache_astro);
-            }
-            RowPressed(row) => {
-                let idx: usize = (page as usize) * LIST_PAGE_SIZE + (row as usize);
-                let entry = match entry_at(tab, idx, &cache_local, &cache_astro) {
-                    Some(e) => e.clone(),
-                    None => continue,
-                };
-                // 插件安装到 ESP32 宿主本身，不需要已连接的 BLE 设备；
-                // 快应用/表盘/资源仍需先配对手环。
-                let is_plugin = matches!(
-                    &entry,
-                    ListEntry::Local(lp) if lp.r#type == local_packages::LocalType::Plugin
-                );
-                let target_addr = if is_plugin {
-                    String::new()
-                } else {
-                    match first_connected_device_addr().await {
-                        Some(a) => a,
-                        None => {
-                            gui::slint_ui::set_install_progress_text(
-                                "未连接设备，先配对 BLE 再安装".to_string(),
-                            );
-                            continue;
-                        }
-                    }
-                };
-                spawn_install_task(target_addr, entry, shared.clone());
-            }
-        }
-    }
-}
-
-fn cache_len(tab: i32, local: &[ListEntry], astro: &[ListEntry]) -> usize {
-    match tab {
-        0 => local.len(),
-        1 => astro.len(),
-        _ => 0,
-    }
-}
-
-fn entry_at(tab: i32, idx: usize, local: &[ListEntry], astro: &[ListEntry]) -> Option<&ListEntry> {
-    match tab {
-        0 => local.get(idx),
-        1 => astro.get(idx),
-        _ => None,
-    }
-}
-
-fn render_page_from_cache(tab: i32, page: i32, local: &[ListEntry], astro: &[ListEntry]) {
-    let total = cache_len(tab, local, astro);
-    let start = (page as usize) * LIST_PAGE_SIZE;
-    let mut items = [
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-    ];
-    for i in 0..LIST_PAGE_SIZE {
-        if let Some(e) = entry_at(tab, start + i, local, astro) {
-            items[i] = e.display_line();
-        }
-    }
-    gui::slint_ui::set_list_items(items);
-    gui::slint_ui::set_list_page(page, total as i32);
-}
-
-/// 重新加载（或首次加载）当前 tab 的缓存。
-/// `force=true` 时即使已加载也重新查（例如刚打开面板 / SD 卡热插拔后的未来场景）。
-#[allow(clippy::too_many_arguments)]
-async fn refresh_tab_cache(
-    tab: i32,
-    shared: &std::rc::Rc<std::cell::RefCell<AppSharedState>>,
-    cache_local: &mut Vec<ListEntry>,
-    cache_astro: &mut Vec<ListEntry>,
-    local_loaded: &mut bool,
-    astro_loaded: &mut bool,
-    force: bool,
-) {
-    let sd_root = shared.borrow().sd_root;
-    match tab {
-        0 => {
-            if !force && *local_loaded {
-                return;
-            }
-            gui::slint_ui::set_install_progress_text("扫描 SD 包…".to_string());
-            let packages = local_packages::scan_packages(sd_root)
-                .await
-                .unwrap_or_default();
-            *cache_local = packages.into_iter().map(ListEntry::Local).collect();
-            *local_loaded = true;
-            if cache_local.is_empty() {
-                gui::slint_ui::set_install_progress_text(if sd_root.is_some() {
-                    "SD 卡未发现安装包（放到 /sdcard/astrobox/packages/）".to_string()
-                } else {
-                    "未检测到 SD 卡".to_string()
-                });
-            } else {
-                gui::slint_ui::set_install_progress_text(format!(
-                    "SD 扫描完成，共 {} 项",
-                    cache_local.len()
-                ));
-            }
-        }
-        1 => {
-            if !force && *astro_loaded {
-                return;
-            }
-            gui::slint_ui::set_install_progress_text("加载 AstroBox 官方源…".to_string());
-            #[cfg(feature = "repo_net")]
-            {
-                // 设备过滤：若有连接设备则按型号。
-                let device_code = first_connected_device_model_code().await;
-                match repo::astrobox_source::fetch_index(device_code.as_deref()).await {
-                    Ok(items) => {
-                        *cache_astro = items.into_iter().map(ListEntry::Repo).collect();
-                        gui::slint_ui::set_install_progress_text(format!(
-                            "AstroBox 源：{} 条（已过滤付费）",
-                            cache_astro.len()
-                        ));
-                    }
-                    Err(e) => {
-                        cache_astro.clear();
-                        gui::slint_ui::set_install_progress_text(format!(
-                            "AstroBox 源加载失败：{e:#}"
-                        ));
-                    }
-                }
-            }
-            #[cfg(not(feature = "repo_net"))]
-            {
-                cache_astro.clear();
-                gui::slint_ui::set_install_progress_text("未启用 repo_net feature".to_string());
-            }
-            *astro_loaded = true;
-        }
-        // 其他 tab 值（原本的 2=米坛）一律当作空：tab 上层 SourceSwitched
-        // 已限制区间，这里保底防止万一。
-        _ => {}
-    }
-}
-
-/// 安装任务：spawn 一个独立 local task 执行，避免阻塞事件接收。
-fn spawn_install_task(
-    addr: String,
-    entry: ListEntry,
-    shared: std::rc::Rc<std::cell::RefCell<AppSharedState>>,
-) {
-    tokio::task::spawn_local(async move {
-        // 进度 channel：下载/安装 pipeline → UI 文本
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<transfer::TransferProgress>(16);
-        let progress_runner = tokio::task::spawn_local(async move {
-            while let Some(p) = rx.recv().await {
-                let pct = p.progress_percent.clamp(0.0, 100.0);
-                let line = format!(
-                    "安装 {}… {:.0}% ({} / {})",
-                    truncate(&p.file_name, 10),
-                    pct,
-                    human_bytes(p.current_bytes as u64),
-                    p.total_bytes
-                        .map(|n| human_bytes(n as u64))
-                        .unwrap_or_else(|| "?".to_string()),
-                );
-                gui::slint_ui::set_install_progress_text(line);
-            }
-        });
-
-        let sd_root = shared.borrow().sd_root;
-        let cache_to_sd = sd_root.is_some();
-
-        let result: anyhow::Result<()> = match entry {
-            ListEntry::Local(lp) => local_packages::install_local(&addr, &lp, Some(tx)).await,
-            ListEntry::Repo(item) => {
-                #[cfg(feature = "repo_net")]
-                {
-                    if !item.paid.is_free() {
-                        Err(anyhow!(
-                            "合规拦截：item {} 不是免费资源，跳过安装",
-                            item.name
-                        ))
-                    } else {
-                        let manifest = match repo::astrobox_source::fetch_manifest(&item).await {
-                            Ok(m) => m,
-                            Err(e) => Err(e)?,
-                        };
-                        install::install_from_repo(
-                            &addr,
-                            &item,
-                            &manifest,
-                            cache_to_sd,
-                            sd_root,
-                            None, // progress 在外部单独跑
-                        )
-                        .await
-                        // 注意：install_from_repo 自己有独立 progress_tx；
-                        // 为避免重写 install_from_repo 的签名改动太多，
-                        // 这里"再模拟"一次下载/安装的粗粒度进度。
-                        // 未来可以把 tx 传入，但目前保持 install_from_repo 不变。
-                        .map(|_| ())
-                    }
-                }
-                #[cfg(not(feature = "repo_net"))]
-                {
-                    let _ = (addr, item, cache_to_sd, sd_root);
-                    Err(anyhow!("repo_net feature disabled"))
-                }
-            }
-        };
-
-        // 等 progress runner 收到所有进度（最多 200ms 排空）
-        drop_progress_and_wait(progress_runner).await;
-
-        match &result {
-            Ok(()) => {
-                gui::slint_ui::set_install_progress_text("安装成功 ✓".to_string());
-                log::info!("[ResourcePanel] install succeeded");
-            }
-            Err(e) => {
-                gui::slint_ui::set_install_progress_text(format!(
-                    "安装失败：{}",
-                    truncate(&format!("{e:#}"), 28)
-                ));
-                log::error!("[ResourcePanel] install failed: {e:#}");
-            }
-        }
-    });
-}
-
-async fn drop_progress_and_wait(handle: tokio::task::JoinHandle<()>) {
-    // channel 已经被 drop（tx 在上层闭包结束时销毁），rx.recv 返回 None 退出。
-    // 最多等 500ms，超时直接 cancel。
-    let _ = tokio::time::timeout(Duration::from_millis(500), handle).await;
-}
-
 async fn first_connected_device_addr() -> Option<String> {
     let ids = transfer::list_connected_devices().await;
     ids.into_iter().next()
@@ -1120,7 +618,7 @@ async fn do_webui_install(
     let addr = match first_connected_device_addr().await {
         Some(a) => a,
         None => {
-            gui::slint_ui::set_install_progress_text("未连接设备，先配对手环再安装".to_string());
+            log::warn!("未连接设备，先配对手环再安装");
             return Err(anyhow!("no connected device"));
         }
     };
