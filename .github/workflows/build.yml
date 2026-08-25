@@ -21,7 +21,9 @@ jobs:
           sudo apt-get install -y cmake ninja-build python3 python3-pip libssl-dev libudev-dev pkg-config
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Install espup and ldproxy
         run: cargo +stable install espup ldproxy --locked
