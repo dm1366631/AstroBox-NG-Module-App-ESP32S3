@@ -571,6 +571,15 @@ async fn run_app() -> anyhow::Result<()> {
         }
     }
 
+    // 保持 wifi 句柄存活（防止 EspWifi drop 导致 STA/热点失效）：
+    // 任何模式下 run_app 都不能返回——一旦 main 返回，tokio 运行时停止、
+    // EspWifi 被 drop，表现为"WiFi 显示已连接但实际收发中断"（Web 全超时）。
+    log::info!("[keepalive] run_app keep-alive loop 启动（WiFi 保持存活）");
+    loop {
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+    }
+
+    #[allow(unreachable_code)]
     Ok(())
 }
 
