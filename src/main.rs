@@ -344,20 +344,7 @@ async fn run_app() -> anyhow::Result<()> {
             })
             .expect("webui server thread spawn");
 
-        // 5) AP 配置模式：轮询用户是否已通过 Web 页面提交 WiFi 凭据，提交后重启进 STA
-        if setup_mode {
-            tokio::task::spawn_local(async move {
-                let mut tick = tokio::time::interval(Duration::from_secs(1));
-                loop {
-                    tick.tick().await;
-                    if web_ui::SETUP_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
-                        log::warn!("WiFi 凭据已保存，重启进入 STA 模式...");
-                        std::thread::sleep(Duration::from_millis(600));
-                        unsafe { esp_idf_sys::esp_restart(); }
-                    }
-                }
-            });
-        }
+
 
         // 4) 工作任务：轮询各通道并在 LocalSet 上跑真实 async 逻辑
         // 4a) install worker: 调 install_* / install_from_repo 或 local_packages::install_local
@@ -567,6 +554,22 @@ async fn run_app() -> anyhow::Result<()> {
             }
         }
     });
+
+    // AP 配置模式：在 run_app 内联等待，保持 wifi 句柄存活（防止热点被释放）。
+    // 用户在 Web 页面（http://192.168.71.1）提交 WiFi 凭据后触发 esp_restart。
+    #[cfg(feature = "webui")]
+    if setup_mode {
+        log::warn!("[setup] AP 配置模式运行中：连接热点 AstroBox-Setup，访问 http://192.168.71.1 配置 WiFi");
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tick.tick().await;
+            if web_ui::SETUP_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
+                log::warn!("[setup] WiFi 凭据已保存，重启进入 STA 模式...");
+                std::thread::sleep(Duration::from_millis(600));
+                unsafe { esp_idf_sys::esp_restart(); }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -1251,3 +1254,4 @@ pub async fn list_connected_devices() -> Vec<String> {
 pub async fn get_device_name(addr: &str) -> anyhow::Result<String> {
     transfer::get_device_info(addr).await
 }
+
